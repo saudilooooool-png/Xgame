@@ -13,6 +13,7 @@ import { WaveAnnouncer } from '../ui/WaveAnnouncer.js';
 import { GameOverScreen } from '../ui/GameOverScreen.js';
 import { Agent } from '../ai/Agent.js';
 import { UpgradeScreen } from '../ui/UpgradeScreen.js';
+import { StartScreen } from '../ui/StartScreen.js';
 
 export class Game {
   constructor() {
@@ -58,6 +59,13 @@ export class Game {
     this._lastTime = 0;
     this._waveDelay = 0;
 
+    // Tutorial hints
+    this._clickHintTimer = 4;       // show "click to move" for 4 seconds
+    this._objectiveArrowTimer = 8;  // show arrow pointing to objective for 8 seconds
+
+    // Show start screen before first wave
+    new StartScreen().show().then(() => this._nextWave());
+
     // Combat tracking (reset each wave)
     this.waveKills = 0;
     this.waveLosses = 0;
@@ -67,8 +75,6 @@ export class Game {
     // Laser visual effects [{x1,y1,x2,y2,color,ttl}]
     this._lasers = [];
     this._awaitingUpgrade = false;
-
-    this._nextWave();
   }
 
   start() {
@@ -89,6 +95,8 @@ export class Game {
     this.totalKills = 0;
     this.totalLosses = 0;
     this._lasers = [];
+    this._clickHintTimer = 4;
+    this._objectiveArrowTimer = 8;
     this.particles.particles.length = 0;
     this.playerSwarm.drones.length = 0;
     this.playerSwarm.reinforce(20, 'standard');
@@ -150,6 +158,8 @@ export class Game {
 
   _update(dt) {
     if (this._waveDelay > 0) this._waveDelay -= dt;
+    if (this._clickHintTimer > 0) this._clickHintTimer -= dt;
+    if (this._objectiveArrowTimer > 0) this._objectiveArrowTimer -= dt;
     if (this.aiMode) this.agent.update(dt);
 
     // age laser effects
@@ -327,6 +337,8 @@ export class Game {
 
     this.waveAnnouncer.draw(this.ctx, this.canvas.width, this.canvas.height);
     this._drawRelocateBanner();
+    this._drawObjectiveArrow();
+    this._drawClickHint();
     this.hud.draw(
       this.score, this.wave, this.objective.health,
       this.playerSwarm.drones.length, this.playerSwarm.currentFormation,
@@ -368,6 +380,81 @@ export class Game {
       ctx.lineTo(l.x2, l.y2);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  /** Arrow pointing from swarm center toward objective — shown first 8s */
+  _drawObjectiveArrow() {
+    if (this._objectiveArrowTimer <= 0) return;
+    const drones = this.playerSwarm.drones;
+    if (!drones.length) return;
+
+    const cx = drones.reduce((s, d) => s + d.x, 0) / drones.length;
+    const cy = drones.reduce((s, d) => s + d.y, 0) / drones.length;
+    const ox = this.objective.x, oy = this.objective.y;
+
+    const dx = ox - cx, dy = oy - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 60) return; // already near objective
+
+    const nx = dx / dist, ny = dy / dist;
+    const arrowStart = 50;
+    const arrowLen = Math.min(dist - 50, 80);
+    if (arrowLen < 20) return;
+
+    const sx = cx + nx * arrowStart;
+    const sy = cy + ny * arrowStart;
+    const ex = sx + nx * arrowLen;
+    const ey = sy + ny * arrowLen;
+
+    const alpha = Math.min(1, this._objectiveArrowTimer / 2);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.strokeStyle = '#ffcc00';
+    ctx.fillStyle = '#ffcc00';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#ffcc00';
+    ctx.shadowBlur = 10;
+
+    // Arrow line
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+
+    // Arrowhead
+    const headLen = 12;
+    const angle = Math.atan2(ny, nx);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - headLen * Math.cos(angle - 0.4), ey - headLen * Math.sin(angle - 0.4));
+    ctx.lineTo(ex - headLen * Math.cos(angle + 0.4), ey - headLen * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fill();
+
+    // Label
+    const lx = sx + nx * (arrowLen / 2);
+    const ly = sy + ny * (arrowLen / 2) - 14;
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PROTECT OBJECTIVE', lx, ly);
+    ctx.restore();
+  }
+
+  /** "Click to move" hint — shown first 4s */
+  _drawClickHint() {
+    if (this._clickHintTimer <= 0) return;
+    const alpha = Math.min(1, this._clickHintTimer / 1.5);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00d4ff';
+    ctx.shadowColor = '#00d4ff';
+    ctx.shadowBlur = 12;
+    ctx.fillText('🖱  انقر على الشاشة لتحريك الأسراب', this.canvas.width / 2, this.canvas.height - 80);
     ctx.restore();
   }
 

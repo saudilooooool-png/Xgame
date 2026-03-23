@@ -8,6 +8,14 @@ const FORMATION_ICONS = {
   defend:  '⬡ Defend',
 };
 
+const FORMATION_TIPS = {
+  wedge:   'هجوم مركّز — اخترق صفوف الأعداء',
+  circle:  'دفاع 360° — احمِ نقطة معينة',
+  scatter: 'تشتّت — تجنّب الضربات الجماعية',
+  line:    'جدار دفاعي — أوقف تقدّم الأعداء',
+  defend:  'حماية الهدف — التف حول النقطة الزرقاء',
+};
+
 export class Commander {
   constructor(canvas, swarm, dataCollector, game) {
     this.canvas = canvas;
@@ -35,6 +43,7 @@ export class Commander {
       const btn = document.createElement('button');
       btn.textContent = FORMATION_ICONS[name] ?? name;
       btn.dataset.formation = name;
+      btn.title = FORMATION_TIPS[name] ?? '';
       btn.style.cssText = `
         background:rgba(0,20,40,0.85); color:#00d4ff;
         border:1px solid #00d4ff44; border-radius:6px;
@@ -90,7 +99,7 @@ export class Commander {
       color:rgba(0,212,255,0.5); font-family:monospace; font-size:12px;
       pointer-events:none; z-index:100;
     `;
-    hint.textContent = 'LEFT CLICK — set target zone   |   BUTTONS — change formation';
+    hint.textContent = '🖱 انقر لتحريك الأسراب   |   الأزرار أدناه: غيّر التشكيل';
     document.body.appendChild(hint);
   }
 
