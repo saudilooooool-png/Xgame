@@ -3,7 +3,7 @@ export class HUD {
     this.canvas = canvas;
   }
 
-  draw(score, wave, objectiveHealth, friendlyCount, formation, samples, serverStatus, kills = 0, losses = 0) {
+  draw(score, wave, objectiveHealth, friendlyCount, formation, samples, serverStatus, kills = 0, losses = 0, hazardCount = 0, isBossWave = false) {
     const ctx = this.canvas.ctx;
     ctx.save();
     ctx.font = '13px monospace';
@@ -54,6 +54,28 @@ export class HUD {
     ctx.fillStyle = serverStatus === true ? 'rgba(0,255,136,0.6)' : 'rgba(255,120,50,0.7)';
     ctx.fillText(`${syncDot} server ${syncLabel}`, this.canvas.width - 16, 46);
     ctx.textAlign = 'left';
+
+    // ── Hazard zones indicator ─────────────────────────────────────
+    if (hazardCount > 0) {
+      const hx = 18, hy = 170;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = 'rgba(255,100,0,0.85)';
+      ctx.shadowColor = '#ff5500';
+      ctx.shadowBlur = 6;
+      ctx.fillText(`⚠ HAZARDS ×${hazardCount}`, hx, hy);
+      ctx.shadowBlur = 0;
+    }
+
+    // ── Boss wave badge (top-left, below standard stats) ──────────
+    if (isBossWave) {
+      const bx = 18, by = hazardCount > 0 ? 188 : 170;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = 'rgba(255,210,0,0.9)';
+      ctx.shadowColor = '#ff8800';
+      ctx.shadowBlur = 8;
+      ctx.fillText('★ BOSS WAVE', bx, by);
+      ctx.shadowBlur = 0;
+    }
 
     ctx.restore();
   }

@@ -58,6 +58,48 @@ export const ENEMY_ROLES = {
   },
 };
 
+/** Boss — spawns once per boss wave (every 5th wave), one per wave */
+export const BOSS_ROLE = {
+  color: '#ffdd00',
+  shadowColor: '#ffaa00',
+  hp: 450,
+  maxHp: 450,
+  maxSpeed: 38,
+  fireRange: 170,
+  fireDamage: 55,
+  fireRate: 2.2,
+  scale: 2.8,           // visual scale multiplier
+  boids: {
+    separationRadius: 50, separationWeight: 2.0,
+    alignmentRadius: 90,  alignmentWeight: 0.3,
+    cohesionRadius: 90,   cohesionWeight: 0.2,
+    seekWeight: 1.8, maxForce: 0.30, maxSpeed: 38,
+  },
+};
+
+/**
+ * Returns a scaled config for a role at a given wave.
+ * Enemies get gradually harder each wave cycle.
+ */
+export function getScaledConfig(role, wave) {
+  const base = { ...ENEMY_ROLES[role] };
+  const tier = Math.floor((wave - 1) / 3);  // tier 0 = waves 1-3, tier 1 = 4-6, …
+  if (tier === 0) return base;
+
+  const hpMult  = 1 + tier * 0.18;
+  const spdMult = 1 + tier * 0.08;
+  const dmgMult = 1 + tier * 0.10;
+
+  return {
+    ...base,
+    hp: Math.round(base.hp * hpMult),
+    maxHp: Math.round(base.maxHp * hpMult),
+    maxSpeed: Math.round(base.maxSpeed * spdMult),
+    fireDamage: Math.round(base.fireDamage * dmgMult),
+    boids: { ...base.boids, maxSpeed: Math.round(base.boids.maxSpeed * spdMult) },
+  };
+}
+
 /**
  * Returns an array of role names for a given wave number.
  * wave 1   → all rushers

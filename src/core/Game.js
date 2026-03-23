@@ -5,6 +5,7 @@ import { Audio } from './Audio.js';
 import { SwarmController } from '../entities/SwarmController.js';
 import { EnemySwarm } from '../entities/EnemySwarm.js';
 import { Objective } from '../entities/Objective.js';
+import { generateHazards } from '../entities/HazardZone.js';
 import { DataCollector } from '../data/DataCollector.js';
 import { Commander } from '../ui/Commander.js';
 import { HUD } from '../ui/HUD.js';
@@ -22,7 +23,19 @@ export class Game {
     this.shake = new ScreenShake();
     this.audio = new Audio();
 
-    this.objective = new Objective(this.canvas.width / 2, this.canvas.height / 2);
+    // Possible objective positions — rotated every 3 waves for tactical variety
+    this._objectivePositions = [
+      { x: this.canvas.width / 2,       y: this.canvas.height / 2      },
+      { x: this.canvas.width * 0.25,    y: this.canvas.height * 0.25   },
+      { x: this.canvas.width * 0.75,    y: this.canvas.height * 0.25   },
+      { x: this.canvas.width * 0.25,    y: this.canvas.height * 0.75   },
+      { x: this.canvas.width * 0.75,    y: this.canvas.height * 0.75   },
+    ];
+    this._objectivePosIndex = 0;
+    this.objective = new Objective(this._objectivePositions[0].x, this._objectivePositions[0].y);
+
+    this.hazards = [];  // HazardZone[] — refreshed each wave
+
     this.playerSwarm = new SwarmController(20, this.canvas, 'friendly');
     this.enemySwarm = new EnemySwarm(0, this.canvas, this.objective);
     this.dataCollector = new DataCollector();
@@ -63,7 +76,12 @@ export class Game {
   }
 
   _restart() {
+    this._objectivePosIndex = 0;
+    const p0 = this._objectivePositions[0];
+    this.objective.x = p0.x;
+    this.objective.y = p0.y;
     this.objective.health = 100;
+    this.hazards = [];
     this.score = 0;
     this.wave = 0;
     this.waveKills = 0;
@@ -84,7 +102,27 @@ export class Game {
     this._waveDelay = 1.5;
     this.waveKills = 0;
     this.waveLosses = 0;
-    this.waveAnnouncer.announce(this.wave);
+
+    // Relocate objective every 3 waves (wave 4, 7, 10, …)
+    if (this.wave > 1 && (this.wave - 1) % 3 === 0) {
+      this._objectivePosIndex =
+        (this._objectivePosIndex + 1) % this._objectivePositions.length;
+      const np = this._objectivePositions[this._objectivePosIndex];
+      this.objective.x = np.x;
+      this.objective.y = np.y;
+      this._objectiveRelocated = true;   // consumed by _draw to show banner
+    } else {
+      this._objectiveRelocated = false;
+    }
+
+    // Generate hazard zones for this wave
+    this.hazards = generateHazards(
+      this.wave, this.canvas.width, this.canvas.height,
+      this.objective.x, this.objective.y
+    );
+
+    const isBossWave = this.wave % 5 === 0;
+    this.waveAnnouncer.announce(this.wave, isBossWave);
     this.audio.waveStart();
     this.enemySwarm.spawnWave(this.wave);
     if (this.wave > 1 && this.playerSwarm.drones.length < 20) {
@@ -123,10 +161,21 @@ export class Game {
     this.shake.update(dt);
     this.waveAnnouncer.update(dt);
 
+    this._applyHazards(dt);
     this._checkCombat(dt);
     this._checkObjectiveHits();
     this._checkWaveComplete();
     this._checkGameOver();
+  }
+
+  /** Apply hazard damage to all drones inside each zone */
+  _applyHazards(dt) {
+    if (!this.hazards.length) return;
+    const all = [...this.playerSwarm.drones, ...this.enemySwarm.drones];
+    for (const h of this.hazards) h.applyDamage(all, dt);
+    // Remove drones killed by hazards
+    this.playerSwarm.drones = this.playerSwarm.drones.filter(d => !d.dead);
+    this.enemySwarm.drones  = this.enemySwarm.drones.filter(d => !d.dead);
   }
 
   _checkCombat(dt) {
@@ -253,6 +302,8 @@ export class Game {
     this.shake.apply(this.ctx);
 
     this._drawGrid();
+    // Draw hazard zones beneath everything else
+    for (const h of this.hazards) h.draw(this.ctx);
     this.objective.draw(this.ctx);
     this.commander.drawTargetZone(this.ctx);
     this._drawLasers();
@@ -263,12 +314,32 @@ export class Game {
     this.ctx.restore();
 
     this.waveAnnouncer.draw(this.ctx, this.canvas.width, this.canvas.height);
+    this._drawRelocateBanner();
     this.hud.draw(
       this.score, this.wave, this.objective.health,
       this.playerSwarm.drones.length, this.playerSwarm.currentFormation,
       this.dataCollector.sampleCount, this.dataCollector.serverStatus,
-      this.totalKills, this.totalLosses
+      this.totalKills, this.totalLosses,
+      this.hazards.length, this.wave % 5 === 0
     );
+  }
+
+  _drawRelocateBanner() {
+    if (!this._objectiveRelocated) return;
+    // Show banner only during the wave delay period
+    if (this._waveDelay <= 0) { this._objectiveRelocated = false; return; }
+    const ctx = this.ctx;
+    const alpha = Math.min(1, this._waveDelay / 1.5);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffcc00';
+    ctx.shadowColor = '#ff8800';
+    ctx.shadowBlur = 14;
+    ctx.fillText('⚡ OBJECTIVE RELOCATED', this.canvas.width / 2, this.canvas.height / 2 + 50);
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   _drawLasers() {

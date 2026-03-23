@@ -1,6 +1,12 @@
 import { Drone } from './Drone.js';
 import { computeBoidForce } from '../ai/Boids.js';
-import { ENEMY_ROLES, waveComposition } from './EnemyRoles.js';
+import { ENEMY_ROLES, BOSS_ROLE, waveComposition, getScaledConfig } from './EnemyRoles.js';
+
+// Unified boids config lookup — works for normal roles AND boss
+function _roleBoids(drone) {
+  if (drone.role === 'boss') return BOSS_ROLE.boids;
+  return (ENEMY_ROLES[drone.role ?? 'rusher']).boids;
+}
 
 export class EnemySwarm {
   constructor(count, canvas, objective) {
@@ -13,6 +19,7 @@ export class EnemySwarm {
 
   spawnWave(wave, overrideCount) {
     this.spawning = true;
+    const isBossWave = wave % 5 === 0;
     const count = overrideCount ?? Math.min(10 + wave * 3, 40);
     const { width, height } = this.canvas;
     const edges = ['top', 'left', 'right', 'bottom'];
@@ -27,31 +34,39 @@ export class EnemySwarm {
       else                        { x = width + 20;             y = Math.random() * height; }
 
       const role = roles[i];
-      const cfg  = ENEMY_ROLES[role];
-      const drone = new Drone(x, y, 'enemy');
-
-      // Apply role stats
-      drone.role       = role;
-      drone.hp         = cfg.hp;
-      drone.maxHp      = cfg.maxHp;
-      drone.maxSpeed   = cfg.maxSpeed;
-      drone.fireRange  = cfg.fireRange;
-      drone.fireDamage = cfg.fireDamage;
-      drone.fireRate   = cfg.fireRate;
-      drone._fireTimer = Math.random() * cfg.fireRate;
-      drone._roleColor = cfg.color;
-      drone._roleShadow = cfg.shadowColor;
-
-      this.drones.push(drone);
+      const cfg  = getScaledConfig(role, wave);
+      this._applyConfig(new Drone(x, y, 'enemy'), role, cfg);
     }
+
+    // Boss spawns from the top center on boss waves
+    if (isBossWave) {
+      const boss = new Drone(width / 2, -30, 'enemy');
+      this._applyConfig(boss, 'boss', BOSS_ROLE);
+      boss._scale = BOSS_ROLE.scale;
+    }
+
     this.spawning = false;
+  }
+
+  _applyConfig(drone, role, cfg) {
+    drone.role       = role;
+    drone.hp         = cfg.hp;
+    drone.maxHp      = cfg.maxHp;
+    drone.maxSpeed   = cfg.maxSpeed;
+    drone.fireRange  = cfg.fireRange;
+    drone.fireDamage = cfg.fireDamage;
+    drone.fireRate   = cfg.fireRate;
+    drone._fireTimer = Math.random() * cfg.fireRate;
+    drone._roleColor  = cfg.color;
+    drone._roleShadow = cfg.shadowColor;
+    this.drones.push(drone);
+    return drone;
   }
 
   update(dt, friendlyDrones) {
     const friendly = friendlyDrones;
 
     for (const drone of this.drones) {
-      const cfg = ENEMY_ROLES[drone.role ?? 'rusher'];
       let seekTarget;
 
       switch (drone.role) {
@@ -60,6 +75,12 @@ export class EnemySwarm {
           break;
         case 'sniper':
           seekTarget = this._sniperTarget(drone, friendly);
+          break;
+        case 'boss':
+          // Boss charges the objective; occasionally switches to nearest friendly
+          seekTarget = Math.random() < 0.02
+            ? this._nearestFriendly(drone, friendly) ?? this.objective
+            : this.objective;
           break;
         default: // rusher
           seekTarget = this.objective;
@@ -70,10 +91,21 @@ export class EnemySwarm {
       if (Math.random() < 0.003) drone.target = seekTarget;
       else if (!drone.target)    drone.target = seekTarget;
 
-      const force = computeBoidForce(drone, this.drones, drone.target, cfg.boids);
+      const force = computeBoidForce(drone, this.drones, drone.target, _roleBoids(drone));
       drone.update(dt, force);
       this._clampToBounds(drone);
     }
+  }
+
+  /** Returns the closest friendly drone, or null */
+  _nearestFriendly(drone, friendly) {
+    let best = null, bestD2 = Infinity;
+    for (const f of friendly) {
+      const dx = f.x - drone.x, dy = f.y - drone.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) { bestD2 = d2; best = f; }
+    }
+    return best;
   }
 
   // ── Role-specific target calculations ─────────────────────────────────────
@@ -149,14 +181,16 @@ export class EnemySwarm {
 
   _drawDrone(ctx, d) {
     const color = d._roleColor ?? '#ff3c3c';
+    const isBoss = d.role === 'boss';
+    const sc = d._scale ?? 1;
 
     // trail
     if (d.trail.length > 1) {
       ctx.save();
       for (let i = 1; i < d.trail.length; i++) {
-        const alpha = (i / d.trail.length) * 0.28;
+        const alpha = (i / d.trail.length) * (isBoss ? 0.45 : 0.28);
         ctx.strokeStyle = color.replace('rgb', 'rgba').replace(')', `,${alpha})`);
-        ctx.lineWidth = 1;
+        ctx.lineWidth = isBoss ? 2.5 : 1;
         ctx.beginPath();
         ctx.moveTo(d.trail[i - 1].x, d.trail[i - 1].y);
         ctx.lineTo(d.trail[i].x, d.trail[i].y);
@@ -168,36 +202,64 @@ export class EnemySwarm {
     ctx.save();
     ctx.translate(d.x, d.y);
     ctx.rotate(d.angle);
+    if (sc !== 1) ctx.scale(sc, sc);
+
     ctx.fillStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = isBoss ? 22 : 8;
 
     // shape varies by role
     ctx.beginPath();
-    if (d.role === 'sniper') {
+    if (isBoss) {
+      // hexagonal boss shape
+      const R = 12;
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 - Math.PI / 6;
+        i === 0 ? ctx.moveTo(Math.cos(a) * R, Math.sin(a) * R)
+                : ctx.lineTo(Math.cos(a) * R, Math.sin(a) * R);
+      }
+      ctx.closePath();
+      ctx.fill();
+      // inner core
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff8aa';
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (d.role === 'sniper') {
       // elongated diamond
       ctx.moveTo(10, 0); ctx.lineTo(0, -3); ctx.lineTo(-8, 0);
       ctx.lineTo(0, 3);
+      ctx.closePath();
+      ctx.fill();
     } else if (d.role === 'flanker') {
       // wider arrow
       ctx.moveTo(8, 0); ctx.lineTo(-6, -5); ctx.lineTo(-4, 0); ctx.lineTo(-6, 5);
+      ctx.closePath();
+      ctx.fill();
     } else {
-      // standard arrow
+      // standard arrow (rusher)
       ctx.moveTo(8, 0); ctx.lineTo(-5, -4); ctx.lineTo(-3, 0); ctx.lineTo(-5, 4);
+      ctx.closePath();
+      ctx.fill();
     }
-    ctx.closePath();
-    ctx.fill();
     ctx.restore();
   }
 
   _drawHPBar(ctx, d) {
-    const bw = 18, bh = 2;
-    const bx = d.x - bw / 2, by = d.y - 12;
+    const isBoss = d.role === 'boss';
+    const bw = isBoss ? 50 : 18, bh = isBoss ? 4 : 2;
+    const bx = d.x - bw / 2, by = d.y - (isBoss ? 22 : 12);
     const color = d._roleColor ?? '#ff3c3c';
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(bx, by, bw, bh);
     ctx.fillStyle = color;
     ctx.fillRect(bx, by, bw * (d.hp / d.maxHp), bh);
+    if (isBoss) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(bx, by, bw, bh);
+    }
   }
 
   serializeState() {
