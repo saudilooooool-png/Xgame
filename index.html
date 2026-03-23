@@ -3,54 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Xgame</title>
+  <title>SwarmCommand — AI Training Simulator</title>
   <link rel="stylesheet" href="src/styles/main.css" />
 </head>
 <body>
-  <div id="app">
-    <div id="menu" class="screen">
-      <h1 class="title">XGAME</h1>
-      <p class="subtitle">Survive the waves</p>
-      <button id="btn-start" class="btn btn-primary">Start Game</button>
-      <button id="btn-highscores" class="btn btn-secondary">High Scores</button>
-    </div>
-
-    <div id="game-screen" class="screen hidden">
-      <canvas id="game-canvas"></canvas>
-      <div id="hud">
-        <span id="hud-score">Score: <strong id="score-value">0</strong></span>
-        <span id="hud-lives">Lives: <strong id="lives-value">3</strong></span>
-        <span id="hud-level">Level: <strong id="level-value">1</strong></span>
-      </div>
-      <button id="btn-pause" class="btn btn-icon" title="Pause">⏸</button>
-    </div>
-
-    <div id="pause-screen" class="screen hidden overlay">
-      <div class="modal">
-        <h2>Paused</h2>
-        <button id="btn-resume" class="btn btn-primary">Resume</button>
-        <button id="btn-menu-from-pause" class="btn btn-secondary">Main Menu</button>
-      </div>
-    </div>
-
-    <div id="gameover-screen" class="screen hidden overlay">
-      <div class="modal">
-        <h2>Game Over</h2>
-        <p>Final Score: <strong id="final-score">0</strong></p>
-        <input id="player-name" type="text" placeholder="Enter your name" maxlength="12" />
-        <button id="btn-save-score" class="btn btn-primary">Save Score</button>
-        <button id="btn-play-again" class="btn btn-secondary">Play Again</button>
-        <button id="btn-menu-from-gameover" class="btn btn-secondary">Main Menu</button>
-      </div>
-    </div>
-
-    <div id="highscores-screen" class="screen hidden">
-      <h2>High Scores</h2>
-      <ol id="scores-list"></ol>
-      <button id="btn-back-from-scores" class="btn btn-secondary">Back</button>
-    </div>
-  </div>
-
+  <div id="game-container"></div>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>
