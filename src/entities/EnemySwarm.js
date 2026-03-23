@@ -19,7 +19,7 @@ export class EnemySwarm {
     this.objective = objective;
     this.drones = [];
     this.spawning = false;
-    this.spawnWave(1, count);
+    if (count > 0) this.spawnWave(1, count);
   }
 
   spawnWave(wave, overrideCount) {

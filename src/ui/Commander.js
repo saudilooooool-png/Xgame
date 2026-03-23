@@ -94,6 +94,7 @@ export class Commander {
   _onTargetClick(x, y) {
     this._targetZoneDisplay = { x, y, alpha: 1 };
     this.swarm.setTargetZone(x, y);
+    this.game.audio.targetSet();
 
     const gs = this._captureGameState();
     const action = {
@@ -120,6 +121,7 @@ export class Commander {
 
     const tz = this.swarm.targetZone;
     this.swarm.setFormation(name, tz?.x, tz?.y);
+    this.game.audio.formationChange();
 
     const gs = this._captureGameState();
     const action = {
