@@ -185,6 +185,10 @@ export class Commander {
       waveKills: g.waveKills,
       waveLosses: g.waveLosses,
       threatScore: +(g.threatScore().toFixed(3)),
+      enemyRoles: g.enemySwarm.drones.reduce((acc, d) => {
+        acc[d.role ?? 'rusher'] = (acc[d.role ?? 'rusher'] ?? 0) + 1;
+        return acc;
+      }, {}),
     };
   }
 

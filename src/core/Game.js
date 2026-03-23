@@ -11,6 +11,7 @@ import { HUD } from '../ui/HUD.js';
 import { WaveAnnouncer } from '../ui/WaveAnnouncer.js';
 import { GameOverScreen } from '../ui/GameOverScreen.js';
 import { Agent } from '../ai/Agent.js';
+import { UpgradeScreen } from '../ui/UpgradeScreen.js';
 
 export class Game {
   constructor() {
@@ -32,8 +33,11 @@ export class Game {
     this.gameOverScreen = new GameOverScreen(() => this._restart());
     this.gameOverScreen.onExport(() => this.dataCollector.download());
 
+    this.upgradeScreen = new UpgradeScreen();
+
     this.agent = new Agent(this.playerSwarm, this);
     this.aiMode = false;
+    this._awaitingUpgrade = false;
 
     this.score = 0;
     this.wave = 0;
@@ -49,6 +53,7 @@ export class Game {
 
     // Laser visual effects [{x1,y1,x2,y2,color,ttl}]
     this._lasers = [];
+    this._awaitingUpgrade = false;
 
     this._nextWave();
   }
@@ -184,9 +189,38 @@ export class Game {
 
   _checkWaveComplete() {
     if (this._waveDelay > 0) return;
+    if (this._awaitingUpgrade) return;
     if (this.enemySwarm.drones.length === 0 && !this.enemySwarm.spawning) {
       this.score += 100 * this.wave;
-      this._nextWave();
+      this._awaitingUpgrade = true;
+      this.upgradeScreen
+        .show(this.wave, {
+          kills: this.waveKills,
+          losses: this.waveLosses,
+          score: this.score,
+        })
+        .then((key) => {
+          this._applyUpgrade(key);
+          this._awaitingUpgrade = false;
+          this._nextWave();
+        });
+    }
+  }
+
+  _applyUpgrade(key) {
+    const drones = this.playerSwarm.drones;
+    switch (key) {
+      case 'drones':
+        this.playerSwarm.reinforce(5);
+        break;
+      case 'firepower':
+        for (const d of drones) d.fireDamage = Math.round(d.fireDamage * 1.30);
+        break;
+      case 'speed':
+        for (const d of drones) { d.maxSpeed = Math.round(d.maxSpeed * 1.20); }
+        break;
+      default:
+        break;
     }
   }
 
