@@ -1,59 +1,103 @@
-/**
- * DataCollector — records {gameState → playerDecision → outcome} tuples.
- *
- * Each "sample" is captured when the player issues a command (formation change
- * or target zone selection).  The outcome (success/fail) is written back
- * 5 seconds later based on whether the swarm achieved its goal.
- *
- * Format compatible with Imitation Learning / Behavioural Cloning pipelines.
- */
+const SERVER_URL = 'http://localhost:4000/api';
+const FLUSH_INTERVAL = 15_000; // send every 15 seconds
+const FLUSH_BATCH = 10;        // or every 10 samples
+
 export class DataCollector {
   constructor() {
     this.samples = [];
-    this._pending = []; // waiting for outcome resolution
     this.sampleCount = 0;
+    this._sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    this._serverAvailable = null; // null=unknown, true, false
+    this._lastFlush = Date.now();
+
+    this._checkServer();
+    setInterval(() => this._flush(), FLUSH_INTERVAL);
+    window.addEventListener('beforeunload', () => this._flush(true));
   }
 
-  /**
-   * Called by Commander each time the player issues a command.
-   * @param {Object} gameState  - serialized field snapshot
-   * @param {Object} action     - {type, formation?, targetX?, targetY?, wave, score}
-   */
   recordDecision(gameState, action) {
     const sample = {
-      id: Date.now(),
+      id: `${this._sessionId}_${this.sampleCount}`,
+      sessionId: this._sessionId,
       timestamp: Date.now(),
       gameState,
       action,
-      outcome: null, // filled in later
+      outcome: null,
     };
-    this._pending.push(sample);
     this.samples.push(sample);
     this.sampleCount++;
 
-    // auto-resolve outcome after 5 s based on a snapshot callback
     if (action._resolveAfter) {
       setTimeout(() => {
         sample.outcome = action._resolveAfter();
         delete action._resolveAfter;
+        // send immediately once outcome is known
+        if (this._serverAvailable) this._flush();
       }, 5000);
+    }
+
+    if (this.sampleCount % FLUSH_BATCH === 0) this._flush();
+  }
+
+  // ── Server sync ────────────────────────────────────────────────────────────
+
+  async _checkServer() {
+    try {
+      const res = await fetch(`${SERVER_URL}/stats`, { signal: AbortSignal.timeout(2000) });
+      this._serverAvailable = res.ok;
+    } catch {
+      this._serverAvailable = false;
     }
   }
 
-  /** Returns all completed samples (outcome != null) as JSON string */
-  export() {
-    const completed = this.samples.filter((s) => s.outcome !== null);
-    return JSON.stringify(completed, null, 2);
+  async _flush(sync = false) {
+    if (!this._serverAvailable) return;
+    const toSend = this.samples.filter((s) => !s._sent);
+    if (toSend.length === 0) return;
+
+    const payload = {
+      samples: toSend,
+      session: {
+        sessionId: this._sessionId,
+        startedAt: parseInt(this._sessionId.split('_')[1]),
+        sampleCount: toSend.length,
+      },
+    };
+
+    const send = () => fetch(`${SERVER_URL}/samples`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: sync,
+    }).then((r) => {
+      if (r.ok) toSend.forEach((s) => { s._sent = true; });
+    }).catch(() => {});
+
+    if (sync) {
+      // best-effort synchronous send on page unload
+      navigator.sendBeacon
+        ? navigator.sendBeacon(`${SERVER_URL}/samples`, JSON.stringify(payload))
+        : send();
+    } else {
+      await send();
+    }
   }
 
-  /** Triggers a browser download of the dataset */
+  // ── Export (fallback manual download) ─────────────────────────────────────
+
+  export() {
+    return JSON.stringify(this.samples, null, 2);
+  }
+
   download() {
     const blob = new Blob([this.export()], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `swarm_training_data_${Date.now()}.json`;
+    a.download = `swarm_data_${this._sessionId}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
+
+  get serverStatus() { return this._serverAvailable; }
 }

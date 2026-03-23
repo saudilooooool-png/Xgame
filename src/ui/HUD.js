@@ -3,7 +3,7 @@ export class HUD {
     this.canvas = canvas;
   }
 
-  draw(score, wave, objectiveHealth, friendlyCount, formation, samples) {
+  draw(score, wave, objectiveHealth, friendlyCount, formation, samples, serverStatus) {
     const ctx = this.canvas.ctx;
     ctx.save();
     ctx.font = '13px monospace';
@@ -37,11 +37,15 @@ export class HUD {
     ctx.font = '11px monospace';
     ctx.fillText('OBJECTIVE', barX, barY - 4);
 
-    // data samples counter (top right)
-    ctx.fillStyle = 'rgba(0,255,136,0.7)';
+    // data samples + server status (top right)
+    const syncDot = serverStatus === true ? '🟢' : serverStatus === false ? '🔴' : '🟡';
+    const syncLabel = serverStatus === true ? 'syncing' : serverStatus === false ? 'offline' : 'connecting';
     ctx.font = '12px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(`⬡ ${samples} samples collected`, this.canvas.width - 16, 28);
+    ctx.fillStyle = 'rgba(0,255,136,0.7)';
+    ctx.fillText(`⬡ ${samples} samples`, this.canvas.width - 16, 28);
+    ctx.fillStyle = serverStatus === true ? 'rgba(0,255,136,0.6)' : 'rgba(255,120,50,0.7)';
+    ctx.fillText(`${syncDot} server ${syncLabel}`, this.canvas.width - 16, 46);
     ctx.textAlign = 'left';
 
     ctx.restore();

@@ -165,7 +165,7 @@ export class Game {
     this.hud.draw(
       this.score, this.wave, this.objective.health,
       this.playerSwarm.drones.length, this.playerSwarm.currentFormation,
-      this.dataCollector.sampleCount
+      this.dataCollector.sampleCount, this.dataCollector.serverStatus
     );
   }
 

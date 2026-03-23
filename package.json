@@ -1,12 +1,17 @@
 {
   "name": "xgame",
   "version": "1.0.0",
-  "description": "A classic arcade space shooter built with vanilla JS and Canvas API",
+  "description": "SwarmCommand — drone swarm tactical game + AI training data platform",
   "type": "module",
   "scripts": {
     "dev": "npx serve . -p 3000",
+    "server": "node server/index.js",
     "lint": "npx eslint src/**/*.js"
   },
-  "keywords": ["game", "canvas", "space-shooter", "arcade"],
-  "license": "MIT"
+  "keywords": ["game", "canvas", "drone-swarm", "ai-training", "human-computation"],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  }
 }
