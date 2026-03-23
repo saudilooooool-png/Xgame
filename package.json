@@ -1,0 +1,12 @@
+{
+  "name": "xgame",
+  "version": "1.0.0",
+  "description": "A classic arcade space shooter built with vanilla JS and Canvas API",
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve . -p 3000",
+    "lint": "npx eslint src/**/*.js"
+  },
+  "keywords": ["game", "canvas", "space-shooter", "arcade"],
+  "license": "MIT"
+}
