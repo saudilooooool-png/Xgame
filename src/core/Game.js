@@ -10,6 +10,7 @@ import { Commander } from '../ui/Commander.js';
 import { HUD } from '../ui/HUD.js';
 import { WaveAnnouncer } from '../ui/WaveAnnouncer.js';
 import { GameOverScreen } from '../ui/GameOverScreen.js';
+import { Agent } from '../ai/Agent.js';
 
 export class Game {
   constructor() {
@@ -30,6 +31,9 @@ export class Game {
 
     this.gameOverScreen = new GameOverScreen(() => this._restart());
     this.gameOverScreen.onExport(() => this.dataCollector.download());
+
+    this.agent = new Agent(this.playerSwarm, this);
+    this.aiMode = false;
 
     this.score = 0;
     this.wave = 0;
@@ -79,8 +83,16 @@ export class Game {
     requestAnimationFrame((t) => this._loop(t));
   }
 
+  toggleAI() {
+    this.aiMode = !this.aiMode;
+    if (this.aiMode && !this.agent.active) {
+      this.agent.load();
+    }
+  }
+
   _update(dt) {
     if (this._waveDelay > 0) this._waveDelay -= dt;
+    if (this.aiMode) this.agent.update(dt);
 
     this.playerSwarm.update(dt, this.enemySwarm.drones);
     this.enemySwarm.update(dt, this.playerSwarm.drones);

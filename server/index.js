@@ -3,6 +3,7 @@ import cors from 'cors';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import samplesRouter from './routes/samples.js';
+import modelRouter from './routes/model.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -13,6 +14,7 @@ app.use(express.json({ limit: '10mb' }));
 
 // API routes
 app.use('/api', samplesRouter);
+app.use('/api', modelRouter);
 
 // Dashboard static files
 app.use('/dashboard', express.static(join(__dir, 'public')));
@@ -23,5 +25,6 @@ app.get('/', (_req, res) => res.redirect('/dashboard'));
 app.listen(PORT, () => {
   console.log(`\n  SwarmCommand Data Server`);
   console.log(`  → API:       http://localhost:${PORT}/api/stats`);
+  console.log(`  → Train:     POST http://localhost:${PORT}/api/model/train`);
   console.log(`  → Dashboard: http://localhost:${PORT}/dashboard\n`);
 });

@@ -57,6 +57,18 @@ export class Commander {
       this._buttons.push(btn);
     });
 
+    // AI toggle button
+    this._aiBtn = document.createElement('button');
+    this._aiBtn.textContent = '⬡ AI: OFF';
+    this._aiBtn.style.cssText = `
+      background:rgba(40,0,60,0.85); color:#cc88ff;
+      border:1px solid #cc88ff44; border-radius:6px;
+      padding:8px 14px; font-size:13px; cursor:pointer;
+      font-family:monospace; letter-spacing:0.5px;
+    `;
+    this._aiBtn.addEventListener('click', () => this._onAIToggle());
+    panel.appendChild(this._aiBtn);
+
     // Download button
     const dlBtn = document.createElement('button');
     dlBtn.textContent = '⬇ Export Data';
@@ -84,11 +96,33 @@ export class Commander {
 
   _bindEvents() {
     this.canvas.el.addEventListener('click', (e) => {
+      if (this.game.aiMode) return; // ignore clicks in AI mode
       const rect = this.canvas.el.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       this._onTargetClick(x, y);
     });
+  }
+
+  _onAIToggle() {
+    this.game.toggleAI();
+    const on = this.game.aiMode;
+    const label = on
+      ? `⬡ AI: ${this.game.agent.statusLabel}`
+      : '⬡ AI: OFF';
+    this._aiBtn.textContent = label;
+    this._aiBtn.style.background = on ? 'rgba(80,0,120,0.9)' : 'rgba(40,0,60,0.85)';
+    this._aiBtn.style.borderColor = on ? '#cc88ff' : '#cc88ff44';
+    this._aiBtn.style.color = on ? '#ee99ff' : '#cc88ff';
+
+    // update label once model finishes loading
+    if (on) {
+      const poll = setInterval(() => {
+        const lbl = this.game.agent.statusLabel;
+        this._aiBtn.textContent = `⬡ AI: ${lbl}`;
+        if (lbl !== '⟳') clearInterval(poll);
+      }, 500);
+    }
   }
 
   _onTargetClick(x, y) {

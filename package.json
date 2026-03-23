@@ -6,11 +6,19 @@
   "scripts": {
     "dev": "npx serve . -p 3000",
     "server": "node server/index.js",
+    "train": "node server/ai/train.js",
     "lint": "npx eslint src/**/*.js"
   },
-  "keywords": ["game", "canvas", "drone-swarm", "ai-training", "human-computation"],
+  "keywords": [
+    "game",
+    "canvas",
+    "drone-swarm",
+    "ai-training",
+    "human-computation"
+  ],
   "license": "MIT",
   "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0",
     "cors": "^2.8.6",
     "express": "^5.2.1"
   }

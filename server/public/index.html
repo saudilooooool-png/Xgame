@@ -115,6 +115,92 @@
   <div id="last-updated"></div>
   <a class="dl-btn" href="/api/samples" download="swarm_dataset.json">⬇ Download Full Dataset</a>
 
+  <!-- AI Training Panel -->
+  <div style="margin:0 32px 32px; background:var(--card); border:1px solid var(--border);
+              border-radius:8px; padding:20px;">
+    <div style="font-size:11px; letter-spacing:2px; color:var(--muted); margin-bottom:16px;">
+      AI MODEL — BEHAVIOURAL CLONING
+    </div>
+    <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+      <div>
+        <label style="font-size:10px; color:var(--muted); display:block; margin-bottom:4px;">EPOCHS</label>
+        <input id="train-epochs" type="number" value="40" min="5" max="200"
+          style="width:70px; background:#0a1828; color:var(--cyan); border:1px solid var(--border);
+                 border-radius:4px; padding:6px 8px; font-family:monospace; font-size:13px;" />
+      </div>
+      <div>
+        <label style="font-size:10px; color:var(--muted); display:block; margin-bottom:4px;">LEARNING RATE</label>
+        <input id="train-lr" type="number" value="0.002" min="0.0001" max="0.01" step="0.0001"
+          style="width:90px; background:#0a1828; color:var(--cyan); border:1px solid var(--border);
+                 border-radius:4px; padding:6px 8px; font-family:monospace; font-size:13px;" />
+      </div>
+      <button id="train-btn" onclick="startTraining()"
+        style="background:rgba(80,0,120,0.9); color:#ee99ff;
+               border:1px solid #cc88ff66; border-radius:6px;
+               padding:9px 20px; font-size:13px; cursor:pointer;
+               font-family:monospace; letter-spacing:1px;">
+        ⬡ TRAIN MODEL
+      </button>
+      <span id="train-status" style="font-size:12px; color:var(--muted);"></span>
+    </div>
+    <pre id="train-log"
+      style="margin-top:14px; background:#060c14; border:1px solid var(--border);
+             border-radius:4px; padding:12px; font-size:11px; color:#6a9abf;
+             max-height:160px; overflow-y:auto; display:none; white-space:pre-wrap;"></pre>
+  </div>
+
+  <script>
+    async function startTraining() {
+      const btn = document.getElementById('train-btn');
+      const status = document.getElementById('train-status');
+      const log = document.getElementById('train-log');
+      const epochs = parseInt(document.getElementById('train-epochs').value) || 40;
+      const lr = parseFloat(document.getElementById('train-lr').value) || 0.002;
+
+      btn.disabled = true;
+      btn.textContent = '⟳ Training...';
+      status.textContent = 'Starting...';
+      log.style.display = 'block';
+      log.textContent = '';
+
+      try {
+        const res = await fetch('/api/model/train', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ epochs, lr }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        status.textContent = data.message;
+        pollLogs();
+      } catch (e) {
+        status.textContent = '✗ ' + e.message;
+        btn.disabled = false;
+        btn.textContent = '⬡ TRAIN MODEL';
+      }
+    }
+
+    async function pollLogs() {
+      const log = document.getElementById('train-log');
+      const status = document.getElementById('train-status');
+      const btn = document.getElementById('train-btn');
+
+      const res = await fetch('/api/model/logs');
+      const data = await res.json();
+      log.textContent = data.log.join('\n');
+      log.scrollTop = log.scrollHeight;
+      status.textContent = `Status: ${data.status}`;
+
+      if (data.status === 'running') {
+        setTimeout(pollLogs, 1500);
+      } else {
+        btn.disabled = false;
+        btn.textContent = data.status === 'done' ? '✓ RETRAIN' : '⬡ TRAIN MODEL';
+        status.style.color = data.status === 'done' ? 'var(--green)' : 'var(--red)';
+      }
+    }
+  </script>
+
   <script>
     async function refresh() {
       try {
