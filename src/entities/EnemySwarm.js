@@ -14,19 +14,38 @@ export class EnemySwarm {
     this.objective = objective;
     this.drones = [];
     this.spawning = false;
+    this.defenseProfile = null;  // set by Game after mission setup
     if (count > 0) this.spawnWave(1, count);
   }
 
   spawnWave(wave, overrideCount) {
     this.spawning = true;
     const isBossWave = wave % 5 === 0;
-    const count = overrideCount ?? Math.min(10 + wave * 3, 40);
+    const profile = this.defenseProfile;
+
+    // Base count, scaled by defender strategy if available
+    const baseCount = Math.min(10 + wave * 3, 40);
+    const scaledCount = profile
+      ? Math.round(baseCount * profile.strategy.sizeMulti)
+      : baseCount;
+    const count = overrideCount ?? scaledCount;
+
     const { width, height } = this.canvas;
-    const edges = ['top', 'left', 'right', 'bottom'];
-    const roles = waveComposition(wave, count);
+    const allEdges = ['top', 'left', 'right', 'bottom'];
+
+    // Defender biases spawn edge toward guessed approach if correct
+    let edges = allEdges;
+    if (profile?.strategy.edgeBias && profile.guessedApproach) {
+      // Weight guessed approach edge more heavily (appears 3× in pool)
+      edges = [...allEdges, profile.guessedApproach, profile.guessedApproach];
+    }
+
+    // Role weights from strategy
+    const roleWeights = profile?.strategy.roleWeights ?? { rusher: 2, flanker: 1, sniper: 1 };
+    const roles = waveComposition(wave, count, roleWeights);
 
     for (let i = 0; i < count; i++) {
-      const edge = edges[Math.floor(Math.random() * edges.length)];
+      const edge = edges[Math.floor(Math.random() * edges.length)];  // uses biased edges pool
       let x, y;
       if (edge === 'top')         { x = Math.random() * width;  y = -20; }
       else if (edge === 'bottom') { x = Math.random() * width;  y = height + 20; }

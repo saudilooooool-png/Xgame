@@ -35,7 +35,7 @@ export class HUD {
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(barX, barY, barW, barH);
     ctx.fillStyle = healthColor;
-    ctx.fillRect(barX, barY, barW * objectiveHealth / 100, barH);
+    ctx.fillRect(barX, barY, barW * (objectiveHealth / 100), barH);
     ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1;
     ctx.strokeRect(barX, barY, barW, barH);

@@ -107,10 +107,20 @@ export function getScaledConfig(role, wave) {
  * wave 3+  → rushers + flankers + snipers
  * wave 5+  → heavier mix; every 5th wave is a "boss" wave with extra enemies
  */
-export function waveComposition(wave, count) {
+/**
+ * Returns an array of role names for a given wave number.
+ * Optional roleWeights overrides default ratios (from DefenderAI strategy).
+ */
+export function waveComposition(wave, count, roleWeights = null) {
   let rushRatio, flankRatio, snipeRatio;
 
-  if (wave === 1) {
+  if (roleWeights) {
+    // Use defender strategy weights
+    const total = (roleWeights.rusher ?? 0) + (roleWeights.flanker ?? 0) + (roleWeights.sniper ?? 0) || 1;
+    rushRatio  = (roleWeights.rusher  ?? 0) / total;
+    flankRatio = (roleWeights.flanker ?? 0) / total;
+    snipeRatio = (roleWeights.sniper  ?? 0) / total;
+  } else if (wave === 1) {
     [rushRatio, flankRatio, snipeRatio] = [1.00, 0.00, 0.00];
   } else if (wave === 2) {
     [rushRatio, flankRatio, snipeRatio] = [0.70, 0.30, 0.00];

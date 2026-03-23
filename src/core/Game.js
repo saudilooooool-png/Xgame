@@ -14,6 +14,8 @@ import { GameOverScreen } from '../ui/GameOverScreen.js';
 import { Agent } from '../ai/Agent.js';
 import { UpgradeScreen } from '../ui/UpgradeScreen.js';
 import { StartScreen } from '../ui/StartScreen.js';
+import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
+import { TARGET_TYPES } from '../entities/TargetTypes.js';
 
 export class Game {
   constructor() {
@@ -63,8 +65,13 @@ export class Game {
     this._clickHintTimer = 4;       // show "click to move" for 4 seconds
     this._objectiveArrowTimer = 8;  // show arrow pointing to objective for 8 seconds
 
-    // Show start screen before first wave
-    new StartScreen().show().then(() => this._nextWave());
+    // Mission state (set after MissionSetupScreen)
+    this._scoreMulti = 1;
+    this._missionApproach = null;
+    this._defenseProfile  = null;
+
+    // Mission setup → start screen hint → first wave
+    new StartScreen().show().then(() => this._runMissionSetup());
 
     // Combat tracking (reset each wave)
     this.waveKills = 0;
@@ -86,7 +93,6 @@ export class Game {
     const p0 = this._objectivePositions[0];
     this.objective.x = p0.x;
     this.objective.y = p0.y;
-    this.objective.health = 100;
     this.hazards = [];
     this.score = 0;
     this.wave = 0;
@@ -99,10 +105,43 @@ export class Game {
     this._objectiveArrowTimer = 8;
     this.particles.particles.length = 0;
     this.playerSwarm.drones.length = 0;
-    this.playerSwarm.reinforce(20, 'standard');
     this.enemySwarm.drones.length = 0;
     this.running = true;
-    this._nextWave();
+    this._runMissionSetup();
+  }
+
+  _runMissionSetup() {
+    new MissionSetupScreen().show().then((setup) => {
+      // Apply target type to objective
+      this.objective.setTarget(setup.targetId);
+
+      // Apply score multiplier
+      this._scoreMulti = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
+
+      // Apply surprise bonus to score multiplier
+      this._scoreMulti *= (1 + (setup.defenseProfile.surpriseBonus ?? 0));
+
+      // Build player swarm from loadout
+      this.playerSwarm.drones.length = 0;
+      for (const [role, count] of Object.entries(setup.loadout)) {
+        if (count > 0) this.playerSwarm.reinforce(count, role);
+      }
+      // Fallback if somehow no drones were added
+      if (this.playerSwarm.drones.length === 0) {
+        this.playerSwarm.reinforce(10, 'standard');
+      }
+
+      // Pass defense profile to enemy swarm
+      this.enemySwarm.defenseProfile = setup.defenseProfile;
+
+      // Store approach for HUD display
+      this._missionApproach = setup.approach;
+      this._defenseProfile  = setup.defenseProfile;
+
+      this._clickHintTimer = 4;
+      this._objectiveArrowTimer = 8;
+      this._nextWave();
+    });
   }
 
   _nextWave() {
@@ -204,7 +243,7 @@ export class Game {
       if (target.takeDamage(p.fireDamage)) {
         this.particles.explode(target.x, target.y, '#ff3c3c', 10);
         this.audio.enemyDestroyed();
-        this.score += 10;
+        this.score += Math.round(10 * this._scoreMulti);
         this.waveKills++;
         this.totalKills++;
       }
@@ -250,7 +289,7 @@ export class Game {
     if (this._waveDelay > 0) return;
     if (this._awaitingUpgrade) return;
     if (this.enemySwarm.drones.length === 0 && !this.enemySwarm.spawning) {
-      this.score += 100 * this.wave;
+      this.score += Math.round(100 * this.wave * this._scoreMulti);
       this._awaitingUpgrade = true;
       this.upgradeScreen
         .show(this.wave, {
@@ -309,7 +348,7 @@ export class Game {
   }
 
   _checkGameOver() {
-    if (this.objective.health <= 0) {
+    if (this.objective.health !== undefined && this.objective.health <= 0) {
       this.running = false;
       this.audio.gameOver();
       setTimeout(() => {
@@ -339,8 +378,11 @@ export class Game {
     this._drawRelocateBanner();
     this._drawObjectiveArrow();
     this._drawClickHint();
+    const healthPct = this.objective.maxHealth
+      ? Math.round((this.objective.health / this.objective.maxHealth) * 100)
+      : this.objective.health;
     this.hud.draw(
-      this.score, this.wave, this.objective.health,
+      this.score, this.wave, healthPct,
       this.playerSwarm.drones.length, this.playerSwarm.currentFormation,
       this.dataCollector.sampleCount, this.dataCollector.serverStatus,
       this.totalKills, this.totalLosses,
