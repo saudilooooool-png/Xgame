@@ -91,7 +91,7 @@ export class Game {
     this._lasers = [];
     this.particles.particles.length = 0;
     this.playerSwarm.drones.length = 0;
-    this.playerSwarm.reinforce(20);
+    this.playerSwarm.reinforce(20, 'standard');
     this.enemySwarm.drones.length = 0;
     this.running = true;
     this._nextWave();
@@ -126,7 +126,7 @@ export class Game {
     this.audio.waveStart();
     this.enemySwarm.spawnWave(this.wave);
     if (this.wave > 1 && this.playerSwarm.drones.length < 20) {
-      this.playerSwarm.reinforce(Math.min(5, 20 - this.playerSwarm.drones.length));
+      this.playerSwarm.reinforce(Math.min(5, 20 - this.playerSwarm.drones.length), 'standard');
     }
   }
 
@@ -259,14 +259,26 @@ export class Game {
   _applyUpgrade(key) {
     const drones = this.playerSwarm.drones;
     switch (key) {
+      // ── Craft options ──────────────────────────────────────────────────────
+      case 'craft_interceptor':
+        this.playerSwarm.reinforce(2, 'interceptor');
+        break;
+      case 'craft_gunship':
+        this.playerSwarm.reinforce(2, 'gunship');
+        break;
+      case 'craft_sentinel':
+        this.playerSwarm.reinforce(2, 'sentinel');
+        break;
+
+      // ── Global upgrades ────────────────────────────────────────────────────
       case 'drones':
-        this.playerSwarm.reinforce(5);
+        this.playerSwarm.reinforce(5, 'standard');
         break;
       case 'firepower':
         for (const d of drones) d.fireDamage = Math.round(d.fireDamage * 1.30);
         break;
       case 'speed':
-        for (const d of drones) { d.maxSpeed = Math.round(d.maxSpeed * 1.20); }
+        for (const d of drones) d.maxSpeed = Math.round(d.maxSpeed * 1.20);
         break;
       default:
         break;

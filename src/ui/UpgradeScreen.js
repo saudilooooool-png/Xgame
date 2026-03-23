@@ -1,20 +1,20 @@
 /**
- * Between-wave upgrade chooser
+ * Between-wave upgrade & craft chooser
  *
- * Shows 3 upgrade options after each wave.
- * Player must pick one before the next wave spawns.
+ * Two rows:
+ *   Row 1 — CRAFT   (build 2 specialised drones of one type)
+ *   Row 2 — UPGRADE (global stat boosts or +5 standard drones)
+ *
+ * Player picks exactly one card before the next wave spawns.
  */
+import { ROLE_DISPLAY } from '../entities/FriendlyRoles.js';
+
 export class UpgradeScreen {
   constructor() {
     this._el = null;
     this._resolve = null;
   }
 
-  /**
-   * Show the screen. Returns a Promise that resolves with the chosen upgrade key.
-   * @param {number} wave  — wave just completed
-   * @param {object} stats — { kills, losses, score }
-   */
   show(wave, stats) {
     return new Promise((resolve) => {
       this._resolve = resolve;
@@ -31,105 +31,116 @@ export class UpgradeScreen {
   _build(wave, stats) {
     const overlay = document.createElement('div');
     overlay.style.cssText = `
-      position:fixed; inset:0; background:rgba(0,5,15,0.88);
+      position:fixed; inset:0; background:rgba(0,5,15,0.90);
       display:flex; flex-direction:column; align-items:center;
       justify-content:center; z-index:200; font-family:monospace;
     `;
 
-    // Title
+    // ── Header ─────────────────────────────────────────────────────────────
     const title = document.createElement('div');
-    title.style.cssText = `
-      color:#00d4ff; font-size:22px; letter-spacing:3px; margin-bottom:6px;
-    `;
+    title.style.cssText = `color:#00d4ff; font-size:22px; letter-spacing:3px; margin-bottom:6px;`;
     title.textContent = `WAVE ${wave} COMPLETE`;
     overlay.appendChild(title);
 
-    // Stats strip
     const strip = document.createElement('div');
-    strip.style.cssText = `
-      color:rgba(0,212,255,0.5); font-size:12px; letter-spacing:1px; margin-bottom:32px;
-    `;
+    strip.style.cssText = `color:rgba(0,212,255,0.5); font-size:12px; letter-spacing:1px; margin-bottom:28px;`;
     strip.textContent = `KILLS: ${stats.kills}   LOSSES: ${stats.losses}   SCORE: ${stats.score}`;
     overlay.appendChild(strip);
 
-    const subtitle = document.createElement('div');
-    subtitle.style.cssText = `
-      color:rgba(255,255,255,0.5); font-size:12px; letter-spacing:2px; margin-bottom:24px;
-    `;
-    subtitle.textContent = 'CHOOSE AN UPGRADE';
-    overlay.appendChild(subtitle);
+    // ── Row 1 — CRAFT ──────────────────────────────────────────────────────
+    overlay.appendChild(this._sectionLabel('CRAFT — deploy 2 specialised drones', '#44ffcc'));
 
-    // Options
-    const options = [
+    const craftRow = document.createElement('div');
+    craftRow.style.cssText = 'display:flex; gap:12px; margin-bottom:24px;';
+
+    const craftOptions = [
+      { key: 'craft_interceptor', ...ROLE_DISPLAY.interceptor },
+      { key: 'craft_gunship',     ...ROLE_DISPLAY.gunship     },
+      { key: 'craft_sentinel',    ...ROLE_DISPLAY.sentinel     },
+    ];
+    for (const opt of craftOptions) {
+      craftRow.appendChild(this._card(opt));
+    }
+    overlay.appendChild(craftRow);
+
+    // ── Row 2 — UPGRADE ────────────────────────────────────────────────────
+    overlay.appendChild(this._sectionLabel('UPGRADE — global stat boost', '#00d4ff'));
+
+    const upgradeRow = document.createElement('div');
+    upgradeRow.style.cssText = 'display:flex; gap:12px;';
+
+    const upgradeOptions = [
       {
         key: 'drones',
         icon: '⬡⬡⬡',
-        label: '+5 DRONES',
-        desc: 'Reinforce your swarm\nwith 5 additional units',
+        label: '+5 STANDARD',
+        desc: 'Reinforce swarm\nwith 5 balanced units',
         color: '#00d4ff',
       },
       {
         key: 'firepower',
         icon: '⚡',
         label: '+30% FIREPOWER',
-        desc: 'Boost all drone damage\nby 30% this session',
-        color: '#ffaa00',
+        desc: 'Boost all drone\ndamage by 30%',
+        color: '#ffcc00',
       },
       {
         key: 'speed',
         icon: '▶▶',
         label: '+20% SPEED',
-        desc: 'Increase max speed\nof all your drones by 20%',
+        desc: 'Increase max speed\nof all drones by 20%',
         color: '#00ff88',
       },
     ];
-
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex; gap:16px;';
-
-    for (const opt of options) {
-      const card = document.createElement('button');
-      card.style.cssText = `
-        width:180px; padding:24px 16px;
-        background:rgba(0,15,30,0.95);
-        border:1px solid ${opt.color}44;
-        border-radius:10px; cursor:pointer;
-        color:${opt.color}; font-family:monospace;
-        text-align:center; transition:border-color 0.15s, background 0.15s;
-        outline:none;
-      `;
-
-      card.innerHTML = `
-        <div style="font-size:26px; margin-bottom:10px;">${opt.icon}</div>
-        <div style="font-size:14px; letter-spacing:1.5px; margin-bottom:8px;">${opt.label}</div>
-        <div style="font-size:10px; color:rgba(255,255,255,0.45); line-height:1.5; white-space:pre-line;">${opt.desc}</div>
-      `;
-
-      card.addEventListener('mouseenter', () => {
-        card.style.borderColor = opt.color;
-        card.style.background = `rgba(0,30,60,0.98)`;
-      });
-      card.addEventListener('mouseleave', () => {
-        card.style.borderColor = `${opt.color}44`;
-        card.style.background = `rgba(0,15,30,0.95)`;
-      });
-      card.addEventListener('click', () => this._choose(opt.key));
-
-      row.appendChild(card);
+    for (const opt of upgradeOptions) {
+      upgradeRow.appendChild(this._card(opt));
     }
+    overlay.appendChild(upgradeRow);
 
-    overlay.appendChild(row);
-
-    // Skip hint
+    // ── Skip ───────────────────────────────────────────────────────────────
     const skip = document.createElement('div');
-    skip.style.cssText = `
-      margin-top:20px; color:rgba(255,255,255,0.2);
-      font-size:11px; cursor:pointer; letter-spacing:1px;
-    `;
+    skip.style.cssText = `margin-top:20px; color:rgba(255,255,255,0.2);
+      font-size:11px; cursor:pointer; letter-spacing:1px;`;
     skip.textContent = 'SKIP';
     skip.addEventListener('click', () => this._choose('skip'));
     overlay.appendChild(skip);
 
     return overlay;
+  }
+
+  _sectionLabel(text, color) {
+    const el = document.createElement('div');
+    el.style.cssText = `color:${color}; font-size:11px; letter-spacing:2px;
+      opacity:0.6; margin-bottom:10px; text-align:center;`;
+    el.textContent = text.toUpperCase();
+    return el;
+  }
+
+  _card({ key, icon, label, desc, color }) {
+    const card = document.createElement('button');
+    card.style.cssText = `
+      width:168px; padding:18px 14px;
+      background:rgba(0,15,30,0.95);
+      border:1px solid ${color}44;
+      border-radius:10px; cursor:pointer;
+      color:${color}; font-family:monospace;
+      text-align:center; transition:border-color 0.15s, background 0.15s;
+      outline:none;
+    `;
+    card.innerHTML = `
+      <div style="font-size:24px; margin-bottom:8px;">${icon}</div>
+      <div style="font-size:12px; letter-spacing:1.5px; margin-bottom:6px;">${label}</div>
+      <div style="font-size:9px; color:rgba(255,255,255,0.40); line-height:1.5; white-space:pre-line;">${desc}</div>
+    `;
+    card.addEventListener('mouseenter', () => {
+      card.style.borderColor = color;
+      card.style.background  = `rgba(0,30,60,0.98)`;
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.borderColor = `${color}44`;
+      card.style.background  = `rgba(0,15,30,0.95)`;
+    });
+    card.addEventListener('click', () => this._choose(key));
+    return card;
   }
 }
