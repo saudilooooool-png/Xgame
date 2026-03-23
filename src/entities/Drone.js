@@ -9,6 +9,44 @@ export class Drone {
     this.trail = [];
     this.angle = 0;
     this.maxSpeed = type === 'friendly' ? 130 : 90;
+
+    // Combat stats
+    this.hp    = type === 'friendly' ? 100 : 80;
+    this.maxHp = this.hp;
+    this.fireRange  = type === 'friendly' ? 130 : 90;
+    this.fireDamage = type === 'friendly' ? 40  : 25;
+    this.fireRate   = type === 'friendly' ? 0.65 : 1.0; // seconds between shots
+    this._fireTimer = Math.random() * this.fireRate;     // stagger initial shots
+    this.dead = false;
+  }
+
+  takeDamage(dmg) {
+    this.hp -= dmg;
+    if (this.hp <= 0) { this.hp = 0; this.dead = true; }
+    return this.dead;
+  }
+
+  /** Scan targets array, return nearest within fireRange or null */
+  findTarget(targets) {
+    let nearest = null, minD = Infinity;
+    for (const t of targets) {
+      const dx = t.x - this.x, dy = t.y - this.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < this.fireRange * this.fireRange && d2 < minD) {
+        minD = d2; nearest = t;
+      }
+    }
+    return nearest;
+  }
+
+  /** Advance fire timer. Returns true when a shot fires. */
+  tickFire(dt) {
+    this._fireTimer -= dt;
+    if (this._fireTimer <= 0) {
+      this._fireTimer = this.fireRate;
+      return true;
+    }
+    return false;
   }
 
   update(dt, force) {
@@ -73,5 +111,17 @@ export class Drone {
     ctx.closePath();
     ctx.fill();
     ctx.restore();
+
+    // HP bar (only when damaged)
+    if (this.hp < this.maxHp) {
+      const bw = 18, bh = 2;
+      const bx = this.x - bw / 2, by = this.y - 12;
+      const hpColor = this.type === 'friendly' ? '#00d4ff' : '#ff3c3c';
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = hpColor;
+      ctx.fillRect(bx, by, bw * (this.hp / this.maxHp), bh);
+    }
   }
 }
+

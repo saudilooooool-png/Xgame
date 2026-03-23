@@ -31,12 +31,33 @@ export class DataCollector {
       setTimeout(() => {
         sample.outcome = action._resolveAfter();
         delete action._resolveAfter;
-        // send immediately once outcome is known
         if (this._serverAvailable) this._flush();
       }, 5000);
     }
 
     if (this.sampleCount % FLUSH_BATCH === 0) this._flush();
+  }
+
+  /**
+   * Enriches the latest sample with combat outcome after a decision window.
+   * Called by Commander after each player action.
+   * @param {Function} snapshotFn — called after `delayMs` to get {kills,losses,threatScore,objectiveHealth}
+   */
+  resolveOutcome(sampleIdx, snapshotFn, delayMs = 4000) {
+    const sample = this.samples[sampleIdx];
+    if (!sample) return;
+    setTimeout(() => {
+      const snap = snapshotFn();
+      sample.outcome = {
+        kills:           snap.kills,
+        losses:          snap.losses,
+        threatScore:     snap.threatScore,
+        objectiveHealth: snap.objectiveHealth,
+        // reward: positive when we kill more than we lose, scaled by threat
+        reward: (snap.kills - snap.losses) + (1 - snap.threatScore) * 2,
+      };
+      if (this._serverAvailable) this._flush();
+    }, delayMs);
   }
 
   // ── Server sync ────────────────────────────────────────────────────────────

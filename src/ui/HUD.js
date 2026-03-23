@@ -3,16 +3,16 @@ export class HUD {
     this.canvas = canvas;
   }
 
-  draw(score, wave, objectiveHealth, friendlyCount, formation, samples, serverStatus) {
+  draw(score, wave, objectiveHealth, friendlyCount, formation, samples, serverStatus, kills = 0, losses = 0) {
     const ctx = this.canvas.ctx;
     ctx.save();
     ctx.font = '13px monospace';
     ctx.fillStyle = 'rgba(0,212,255,0.85)';
 
     const lines = [
-      `WAVE     ${wave}`,
-      `SCORE    ${score}`,
-      `DRONES   ${friendlyCount}`,
+      `WAVE      ${wave}`,
+      `SCORE     ${score}`,
+      `DRONES    ${friendlyCount}`,
       `FORMATION ${formation.toUpperCase()}`,
     ];
 
@@ -20,8 +20,15 @@ export class HUD {
       ctx.fillText(line, 18, 28 + i * 20);
     });
 
+    // kills / losses
+    ctx.font = '12px monospace';
+    ctx.fillStyle = 'rgba(0,255,136,0.9)';
+    ctx.fillText(`⬡ KILLS   ${kills}`, 18, 112);
+    ctx.fillStyle = losses > kills ? 'rgba(255,80,80,0.9)' : 'rgba(255,160,80,0.8)';
+    ctx.fillText(`✗ LOSSES  ${losses}`, 18, 128);
+
     // objective health bar
-    const barX = 18, barY = 120, barW = 160, barH = 8;
+    const barX = 18, barY = 144, barW = 160, barH = 8;
     const healthColor = objectiveHealth > 60 ? '#00ff88'
       : objectiveHealth > 30 ? '#ffaa00' : '#ff3344';
 
@@ -35,7 +42,7 @@ export class HUD {
 
     ctx.fillStyle = 'rgba(0,212,255,0.6)';
     ctx.font = '11px monospace';
-    ctx.fillText('OBJECTIVE', barX, barY - 4);
+    ctx.fillText('OBJECTIVE', barX, barY - 6);
 
     // data samples + server status (top right)
     const syncDot = serverStatus === true ? '🟢' : serverStatus === false ? '🔴' : '🟡';

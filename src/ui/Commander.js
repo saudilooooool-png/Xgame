@@ -169,30 +169,48 @@ export class Commander {
   }
 
   _captureGameState() {
+    const g = this.game;
     return {
       timestamp: Date.now(),
-      wave: this.game.wave,
-      score: this.game.score,
-      objectiveHealth: this.game.objective.health,
-      objectiveX: +(this.game.objective.x.toFixed(1)),
-      objectiveY: +(this.game.objective.y.toFixed(1)),
-      friendlyCount: this.game.playerSwarm.drones.length,
-      enemyCount: this.game.enemySwarm.drones.length,
-      friendlyDrones: this.game.playerSwarm.serializeState(),
-      enemyDrones: this.game.enemySwarm.serializeState(),
-      currentFormation: this.game.playerSwarm.currentFormation,
+      wave: g.wave,
+      score: g.score,
+      objectiveHealth: g.objective.health,
+      objectiveX: +(g.objective.x.toFixed(1)),
+      objectiveY: +(g.objective.y.toFixed(1)),
+      friendlyCount: g.playerSwarm.drones.length,
+      enemyCount: g.enemySwarm.drones.length,
+      friendlyDrones: g.playerSwarm.serializeState(),
+      enemyDrones: g.enemySwarm.serializeState(),
+      currentFormation: g.playerSwarm.currentFormation,
+      waveKills: g.waveKills,
+      waveLosses: g.waveLosses,
+      threatScore: +(g.threatScore().toFixed(3)),
     };
   }
 
   _evaluateOutcome(targetX, targetY) {
-    const { drones } = this.game.playerSwarm;
-    if (!targetX || drones.length === 0) return 'unknown';
-    const centroidX = drones.reduce((s, d) => s + d.x, 0) / drones.length;
-    const centroidY = drones.reduce((s, d) => s + d.y, 0) / drones.length;
-    const dx = centroidX - targetX;
-    const dy = centroidY - targetY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    return dist < 100 ? 'reached' : 'missed';
+    const g = this.game;
+    const { drones } = g.playerSwarm;
+    const snapKills     = g.waveKills;
+    const snapLosses    = g.waveLosses;
+    const snapThreat    = +(g.threatScore().toFixed(3));
+    const snapObjHealth = g.objective.health;
+
+    let reached = false;
+    if (targetX && drones.length > 0) {
+      const cx = drones.reduce((s, d) => s + d.x, 0) / drones.length;
+      const cy = drones.reduce((s, d) => s + d.y, 0) / drones.length;
+      reached = Math.sqrt((cx - targetX) ** 2 + (cy - targetY) ** 2) < 100;
+    }
+
+    return {
+      reached,
+      kills:           snapKills,
+      losses:          snapLosses,
+      threatScore:     snapThreat,
+      objectiveHealth: snapObjHealth,
+      reward: (snapKills - snapLosses) + (reached ? 1 : -0.5) + (1 - snapThreat) * 2,
+    };
   }
 
   drawTargetZone(ctx) {
