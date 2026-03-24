@@ -9,14 +9,46 @@ function _roleBoids(drone) {
 }
 
 export class EnemySwarm {
-  constructor(count, canvas, objective) {
+  constructor(count, canvas, objectives) {
     this.canvas = canvas;
-    this.objective = objective;
+    // Support both single objective (legacy) and array of objectives
+    this.objectives = Array.isArray(objectives) ? objectives : [objectives];
     this.drones = [];
     this.spawning = false;
     this.defenseProfile = null;  // set by Game after mission setup
     if (count > 0) this.spawnWave(1, count);
   }
+
+  /** Pick which objective this drone should target based on wave & role */
+  _pickObjectiveTarget(role, wave) {
+    const alive = this.objectives.filter(o => o.health > 0);
+    if (!alive.length) return this.objectives[0];
+
+    // Boss always targets the weakest alive objective
+    if (role === 'boss') {
+      return alive.reduce((min, o) =>
+        o.health / o.maxHealth < min.health / min.maxHealth ? o : min, alive[0]);
+    }
+
+    // Wave-based distribution: enemies focus different resources over time
+    // Wave 1-3: all target power | Wave 4-6: power + water | Wave 7+: all 3
+    const rand = Math.random();
+    if (wave <= 3) {
+      return alive.find(o => o.resourceType === 'power') ?? alive[0];
+    } else if (wave <= 6) {
+      const obj = rand < 0.6
+        ? alive.find(o => o.resourceType === 'power')
+        : alive.find(o => o.resourceType === 'water');
+      return obj ?? alive[0];
+    } else {
+      if (rand < 0.40) return alive.find(o => o.resourceType === 'power')  ?? alive[0];
+      if (rand < 0.70) return alive.find(o => o.resourceType === 'water')  ?? alive[0];
+      return                   alive.find(o => o.resourceType === 'food')   ?? alive[0];
+    }
+  }
+
+  /** Convenience: primary objective (first alive) */
+  get objective() { return this.objectives.find(o => o.health > 0) ?? this.objectives[0]; }
 
   spawnWave(wave, overrideCount) {
     this.spawning = true;
@@ -54,7 +86,8 @@ export class EnemySwarm {
 
       const role = roles[i];
       const cfg  = getScaledConfig(role, wave);
-      this._applyConfig(new Drone(x, y, 'enemy'), role, cfg);
+      const drone = this._applyConfig(new Drone(x, y, 'enemy'), role, cfg);
+      drone._assignedObjective = this._pickObjectiveTarget(role, wave);
     }
 
     // Boss spawns from the top center on boss waves
@@ -62,6 +95,7 @@ export class EnemySwarm {
       const boss = new Drone(width / 2, -30, 'enemy');
       this._applyConfig(boss, 'boss', BOSS_ROLE);
       boss._scale = BOSS_ROLE.scale;
+      boss._assignedObjective = this._pickObjectiveTarget('boss', wave);
     }
 
     this.spawning = false;
@@ -86,23 +120,30 @@ export class EnemySwarm {
     const friendly = friendlyDrones;
 
     for (const drone of this.drones) {
+      // If assigned objective was destroyed, redirect to next alive one
+      if (drone._assignedObjective && drone._assignedObjective.health <= 0) {
+        const alive = this.objectives.filter(o => o.health > 0);
+        drone._assignedObjective = alive.length ? alive[0] : this.objectives[0];
+      }
+      const myObjective = drone._assignedObjective ?? this.objective;
+
       let seekTarget;
 
       switch (drone.role) {
         case 'flanker':
-          seekTarget = this._flankerTarget(drone, friendly);
+          seekTarget = this._flankerTarget(drone, friendly, myObjective);
           break;
         case 'sniper':
-          seekTarget = this._sniperTarget(drone, friendly);
+          seekTarget = this._sniperTarget(drone, friendly, myObjective);
           break;
         case 'boss':
-          // Boss charges the objective; occasionally switches to nearest friendly
+          // Boss charges its objective; occasionally switches to nearest friendly
           seekTarget = Math.random() < 0.02
-            ? this._nearestFriendly(drone, friendly) ?? this.objective
-            : this.objective;
+            ? this._nearestFriendly(drone, friendly) ?? myObjective
+            : myObjective;
           break;
         default: // rusher
-          seekTarget = this.objective;
+          seekTarget = myObjective;
           break;
       }
 
@@ -129,30 +170,30 @@ export class EnemySwarm {
 
   // ── Role-specific target calculations ─────────────────────────────────────
 
-  /** Flanker: seeks a point 180° around the friendly centroid */
-  _flankerTarget(drone, friendly) {
-    if (!friendly.length) return this.objective;
+  /** Flanker: seeks a point 90° around the friendly centroid relative to its objective */
+  _flankerTarget(drone, friendly, objective) {
+    if (!friendly.length) return objective;
 
     // friendly centroid
     const fcx = friendly.reduce((s, d) => s + d.x, 0) / friendly.length;
     const fcy = friendly.reduce((s, d) => s + d.y, 0) / friendly.length;
 
     // vector from friendly centroid → objective
-    const toObjX = this.objective.x - fcx;
-    const toObjY = this.objective.y - fcy;
+    const toObjX = objective.x - fcx;
+    const toObjY = objective.y - fcy;
     const len = Math.sqrt(toObjX * toObjX + toObjY * toObjY) || 1;
 
     // go 90° offset to approach from the flank
     const perp = drone._flankSign ?? (drone._flankSign = Math.random() < 0.5 ? 1 : -1);
     return {
-      x: this.objective.x + (-toObjY / len) * 120 * perp,
-      y: this.objective.y + ( toObjX / len) * 120 * perp,
+      x: objective.x + (-toObjY / len) * 120 * perp,
+      y: objective.y + ( toObjX / len) * 120 * perp,
     };
   }
 
   /** Sniper: stays 160-220px away from nearest friendly, retreats if too close */
-  _sniperTarget(drone, friendly) {
-    if (!friendly.length) return this.objective;
+  _sniperTarget(drone, friendly, objective) {
+    if (!friendly.length) return objective;
 
     const IDEAL_DIST = 185;
     let nearestF = null, minD2 = Infinity;
@@ -171,8 +212,8 @@ export class EnemySwarm {
       };
     }
     // comfortable range — hold position near objective direction
-    const ox = this.objective.x - drone.x;
-    const oy = this.objective.y - drone.y;
+    const ox = objective.x - drone.x;
+    const oy = objective.y - drone.y;
     const ol = Math.sqrt(ox * ox + oy * oy) || 1;
     return { x: drone.x + ox / ol * 40, y: drone.y + oy / ol * 40 };
   }

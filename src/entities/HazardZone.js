@@ -14,12 +14,13 @@ export class HazardZone {
   }
 
   /** Apply per-frame damage to any drone inside the zone. */
-  applyDamage(drones, dt) {
+  applyDamage(drones, dt, dpsMultiplier = 1) {
     const r2 = this.radius * this.radius;
+    const dps = this.dps * dpsMultiplier;
     for (const d of drones) {
       const dx = d.x - this.x, dy = d.y - this.y;
       if (dx * dx + dy * dy < r2) {
-        d.hp -= this.dps * dt;
+        d.hp -= dps * dt;
         if (d.hp <= 0) { d.hp = 0; d.dead = true; }
       }
     }
@@ -71,35 +72,47 @@ export class HazardZone {
 
 /**
  * Generate 0-3 non-overlapping hazard zones for a wave.
- * Avoids spawning on top of the objective or canvas edges.
+ * Avoids spawning on top of any city objective or canvas edges.
+ * @param {number} wave
+ * @param {number} canvasWidth
+ * @param {number} canvasHeight
+ * @param {Objective[]|{x,y}[]} objectives - array of objectives to avoid
  */
-export function generateHazards(wave, canvasWidth, canvasHeight, objectiveX, objectiveY) {
-  if (wave < 3) return [];              // no hazards in first 2 waves
+export function generateHazards(wave, canvasWidth, canvasHeight, objectives) {
+  if (wave < 3) return [];
   const count = wave < 5 ? 1 : wave < 8 ? 2 : 3;
   const MARGIN = 80;
-  const OBJ_CLEAR = 130;               // keep away from objective
-  const MIN_GAP = 120;                 // minimum distance between zones
+  const OBJ_CLEAR = 130;
+  const MIN_GAP = 120;
   const zones = [];
 
+  // Normalise: accept both Objective instances and plain {x,y} objects
+  const objPoints = Array.isArray(objectives)
+    ? objectives
+    : [{ x: objectives, y: arguments[4] }]; // legacy single-xy fallback
+
   let attempts = 0;
-  while (zones.length < count && attempts < 60) {
+  while (zones.length < count && attempts < 80) {
     attempts++;
     const r = 55 + Math.random() * 35;
     const x = MARGIN + Math.random() * (canvasWidth  - MARGIN * 2);
     const y = MARGIN + Math.random() * (canvasHeight - MARGIN * 2);
 
-    // stay away from objective
-    const dObj = Math.sqrt((x - objectiveX) ** 2 + (y - objectiveY) ** 2);
-    if (dObj < OBJ_CLEAR + r) continue;
+    // Stay away from all objectives
+    const tooCloseToObj = objPoints.some(obj => {
+      const d = Math.sqrt((x - obj.x) ** 2 + (y - obj.y) ** 2);
+      return d < OBJ_CLEAR + r;
+    });
+    if (tooCloseToObj) continue;
 
-    // don't overlap other zones
+    // Don't overlap other zones
     const overlaps = zones.some((z) => {
       const d = Math.sqrt((x - z.x) ** 2 + (y - z.y) ** 2);
       return d < z.radius + r + MIN_GAP;
     });
     if (overlaps) continue;
 
-    zones.push(new HazardZone(x, y, r, 18 + wave * 2));  // DPS scales with wave
+    zones.push(new HazardZone(x, y, r, 18 + wave * 2));
   }
 
   return zones;

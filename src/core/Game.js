@@ -5,6 +5,7 @@ import { Audio } from './Audio.js';
 import { SwarmController } from '../entities/SwarmController.js';
 import { EnemySwarm } from '../entities/EnemySwarm.js';
 import { Objective } from '../entities/Objective.js';
+import { CityResources } from '../entities/CityResources.js';
 import { generateHazards } from '../entities/HazardZone.js';
 import { DataCollector } from '../data/DataCollector.js';
 import { Commander } from '../ui/Commander.js';
@@ -26,21 +27,14 @@ export class Game {
     this.shake = new ScreenShake();
     this.audio = new Audio();
 
-    // Possible objective positions — rotated every 3 waves for tactical variety
-    this._objectivePositions = [
-      { x: this.canvas.width / 2,       y: this.canvas.height / 2      },
-      { x: this.canvas.width * 0.25,    y: this.canvas.height * 0.25   },
-      { x: this.canvas.width * 0.75,    y: this.canvas.height * 0.25   },
-      { x: this.canvas.width * 0.25,    y: this.canvas.height * 0.75   },
-      { x: this.canvas.width * 0.75,    y: this.canvas.height * 0.75   },
-    ];
-    this._objectivePosIndex = 0;
-    this.objective = new Objective(this._objectivePositions[0].x, this._objectivePositions[0].y);
+    // ── 3 fixed city objectives (power ⚡, water 💧, food 🌾) ─────────────────
+    this.objectives = this._buildObjectives();
+    this.cityResources = new CityResources();
 
-    this.hazards = [];  // HazardZone[] — refreshed each wave
+    this.hazards = [];
 
     this.playerSwarm = new SwarmController(20, this.canvas, 'friendly');
-    this.enemySwarm = new EnemySwarm(0, this.canvas, this.objective);
+    this.enemySwarm  = new EnemySwarm(0, this.canvas, this.objectives);
     this.dataCollector = new DataCollector();
     this.hud = new HUD(this.canvas);
     this.waveAnnouncer = new WaveAnnouncer();
@@ -62,26 +56,36 @@ export class Game {
     this._waveDelay = 0;
 
     // Tutorial hints
-    this._clickHintTimer = 4;       // show "click to move" for 4 seconds
-    this._objectiveArrowTimer = 8;  // show arrow pointing to objective for 8 seconds
+    this._clickHintTimer = 4;
 
-    // Mission state (set after MissionSetupScreen)
+    // Mission state
     this._scoreMulti = 1;
     this._missionApproach = null;
     this._defenseProfile  = null;
 
-    // Mission setup → start screen hint → first wave
+    // Alert banner state
+    this._alertText  = '';
+    this._alertTimer = 0;
+
     new StartScreen().show().then(() => this._runMissionSetup());
 
-    // Combat tracking (reset each wave)
     this.waveKills = 0;
     this.waveLosses = 0;
     this.totalKills = 0;
     this.totalLosses = 0;
 
-    // Laser visual effects [{x1,y1,x2,y2,color,ttl}]
     this._lasers = [];
-    this._awaitingUpgrade = false;
+  }
+
+  /** Build the 3 city objectives at fixed triangle positions */
+  _buildObjectives() {
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    return [
+      new Objective(W * 0.50, H * 0.16, 'power'),   // ⚡ top-center
+      new Objective(W * 0.18, H * 0.68, 'water'),   // 💧 left
+      new Objective(W * 0.82, H * 0.68, 'food'),    // 🌾 right
+    ];
   }
 
   start() {
@@ -89,10 +93,9 @@ export class Game {
   }
 
   _restart() {
-    this._objectivePosIndex = 0;
-    const p0 = this._objectivePositions[0];
-    this.objective.x = p0.x;
-    this.objective.y = p0.y;
+    this.objectives = this._buildObjectives();
+    this.enemySwarm.objectives = this.objectives;
+    this.cityResources.reset();
     this.hazards = [];
     this.score = 0;
     this.wave = 0;
@@ -101,8 +104,9 @@ export class Game {
     this.totalKills = 0;
     this.totalLosses = 0;
     this._lasers = [];
+    this._alertText = '';
+    this._alertTimer = 0;
     this._clickHintTimer = 4;
-    this._objectiveArrowTimer = 8;
     this.particles.particles.length = 0;
     this.playerSwarm.drones.length = 0;
     this.enemySwarm.drones.length = 0;
@@ -112,13 +116,8 @@ export class Game {
 
   _runMissionSetup() {
     new MissionSetupScreen().show().then((setup) => {
-      // Apply target type to objective
-      this.objective.setTarget(setup.targetId);
-
-      // Apply score multiplier
+      // Score multiplier from chosen target type (kept for scoring variety)
       this._scoreMulti = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
-
-      // Apply surprise bonus to score multiplier
       this._scoreMulti *= (1 + (setup.defenseProfile.surpriseBonus ?? 0));
 
       // Build player swarm from loadout
@@ -126,20 +125,14 @@ export class Game {
       for (const [role, count] of Object.entries(setup.loadout)) {
         if (count > 0) this.playerSwarm.reinforce(count, role);
       }
-      // Fallback if somehow no drones were added
       if (this.playerSwarm.drones.length === 0) {
         this.playerSwarm.reinforce(10, 'standard');
       }
 
-      // Pass defense profile to enemy swarm
       this.enemySwarm.defenseProfile = setup.defenseProfile;
-
-      // Store approach for HUD display
       this._missionApproach = setup.approach;
       this._defenseProfile  = setup.defenseProfile;
-
-      this._clickHintTimer = 4;
-      this._objectiveArrowTimer = 8;
+      this._clickHintTimer  = 4;
       this._nextWave();
     });
   }
@@ -150,22 +143,10 @@ export class Game {
     this.waveKills = 0;
     this.waveLosses = 0;
 
-    // Relocate objective every 3 waves (wave 4, 7, 10, …)
-    if (this.wave > 1 && (this.wave - 1) % 3 === 0) {
-      this._objectivePosIndex =
-        (this._objectivePosIndex + 1) % this._objectivePositions.length;
-      const np = this._objectivePositions[this._objectivePosIndex];
-      this.objective.x = np.x;
-      this.objective.y = np.y;
-      this._objectiveRelocated = true;   // consumed by _draw to show banner
-    } else {
-      this._objectiveRelocated = false;
-    }
-
-    // Generate hazard zones for this wave
+    // Regenerate hazards (avoid all 3 objectives)
     this.hazards = generateHazards(
       this.wave, this.canvas.width, this.canvas.height,
-      this.objective.x, this.objective.y
+      this.objectives
     );
 
     const isBossWave = this.wave % 5 === 0;
@@ -181,28 +162,38 @@ export class Game {
     if (!this.running) return;
     const dt = Math.min((timestamp - this._lastTime) / 1000, 0.05);
     this._lastTime = timestamp;
-
     this._update(dt);
     this._draw();
-
     requestAnimationFrame((t) => this._loop(t));
   }
 
   toggleAI() {
     this.aiMode = !this.aiMode;
-    if (this.aiMode && !this.agent.active) {
-      this.agent.load();
-    }
+    if (this.aiMode && !this.agent.active) this.agent.load();
   }
 
   _update(dt) {
     if (this._waveDelay > 0) this._waveDelay -= dt;
     if (this._clickHintTimer > 0) this._clickHintTimer -= dt;
-    if (this._objectiveArrowTimer > 0) this._objectiveArrowTimer -= dt;
+    if (this._alertTimer > 0) this._alertTimer -= dt;
     if (this.aiMode) this.agent.update(dt);
 
-    // age laser effects
     this._lasers = this._lasers.filter(l => (l.ttl -= dt) > 0);
+
+    // Sync resource percentages from live objective HP
+    this.cityResources.syncFromObjectives(this.objectives);
+
+    // Apply cascading resource effects (passive depletion + starvation)
+    this.cityResources.update(dt, this.playerSwarm, this.objectives);
+
+    // Apply food speed penalty to player drones
+    const speedMod = this.cityResources.speedModifier();
+    if (speedMod < 1.0) {
+      for (const d of this.playerSwarm.drones) {
+        if (!d._baseMaxSpeed) d._baseMaxSpeed = d.maxSpeed;
+        d.maxSpeed = Math.round(d._baseMaxSpeed * speedMod);
+      }
+    }
 
     this.playerSwarm.update(dt, this.enemySwarm.drones);
     this.enemySwarm.update(dt, this.playerSwarm.drones);
@@ -217,12 +208,11 @@ export class Game {
     this._checkGameOver();
   }
 
-  /** Apply hazard damage to all drones inside each zone */
   _applyHazards(dt) {
     if (!this.hazards.length) return;
+    const dpsMulti = this.cityResources.hazardDpsMultiplier();
     const all = [...this.playerSwarm.drones, ...this.enemySwarm.drones];
-    for (const h of this.hazards) h.applyDamage(all, dt);
-    // Remove drones killed by hazards
+    for (const h of this.hazards) h.applyDamage(all, dt, dpsMulti);
     this.playerSwarm.drones = this.playerSwarm.drones.filter(d => !d.dead);
     this.enemySwarm.drones  = this.enemySwarm.drones.filter(d => !d.dead);
   }
@@ -231,13 +221,10 @@ export class Game {
     const friendly = this.playerSwarm.drones;
     const enemies  = this.enemySwarm.drones;
 
-    // ── Friendly drones fire at nearest enemy ─────────────────────────────────
     for (const p of friendly) {
       const target = p.findTarget(enemies);
       if (!target) continue;
       if (!p.tickFire(dt)) continue;
-
-      // fire!
       this._lasers.push({ x1: p.x, y1: p.y, x2: target.x, y2: target.y,
                           color: '#00d4ff', ttl: 0.08 });
       if (target.takeDamage(p.fireDamage)) {
@@ -249,12 +236,10 @@ export class Game {
       }
     }
 
-    // ── Enemy drones fire at nearest friendly ─────────────────────────────────
     for (const e of enemies) {
       const target = e.findTarget(friendly);
       if (!target) continue;
       if (!e.tickFire(dt)) continue;
-
       this._lasers.push({ x1: e.x, y1: e.y, x2: target.x, y2: target.y,
                           color: '#ff3c3c', ttl: 0.08 });
       if (target.takeDamage(e.fireDamage)) {
@@ -264,7 +249,6 @@ export class Game {
       }
     }
 
-    // Remove dead drones
     this.playerSwarm.drones = friendly.filter(d => !d.dead);
     this.enemySwarm.drones  = enemies.filter(d => !d.dead);
   }
@@ -272,17 +256,34 @@ export class Game {
   _checkObjectiveHits() {
     const OBJ_R2 = 30 * 30;
     const enemies = this.enemySwarm.drones;
+
     for (let j = enemies.length - 1; j >= 0; j--) {
       const e = enemies[j];
-      const dx = e.x - this.objective.x, dy = e.y - this.objective.y;
-      if (dx * dx + dy * dy < OBJ_R2) {
-        this.particles.explode(e.x, e.y, '#ff8800', 8);
-        enemies.splice(j, 1);
-        this.objective.health = Math.max(0, this.objective.health - 10);
-        this.shake.trigger(10, 0.35);
-        this.audio.objectiveHit();
+      for (const obj of this.objectives) {
+        if (obj.health <= 0) continue; // already destroyed
+        const dx = e.x - obj.x, dy = e.y - obj.y;
+        if (dx * dx + dy * dy < OBJ_R2) {
+          this.particles.explode(e.x, e.y, '#ff8800', 8);
+          enemies.splice(j, 1);
+          const prev = obj.health;
+          obj.health = Math.max(0, obj.health - 10);
+          this.shake.trigger(10, 0.35);
+          this.audio.objectiveHit();
+          // Show alert when objective first drops to 0
+          if (prev > 0 && obj.health <= 0) {
+            this._showAlert(`💥 ${obj._label} دُمِّرت!`);
+          } else if (obj.health / obj.maxHealth <= 0.30 && prev / obj.maxHealth > 0.30) {
+            this._showAlert(`⚠ ${obj._label} في خطر!`);
+          }
+          break;
+        }
       }
     }
+  }
+
+  _showAlert(text) {
+    this._alertText  = text;
+    this._alertTimer = 3.0;
   }
 
   _checkWaveComplete() {
@@ -292,11 +293,7 @@ export class Game {
       this.score += Math.round(100 * this.wave * this._scoreMulti);
       this._awaitingUpgrade = true;
       this.upgradeScreen
-        .show(this.wave, {
-          kills: this.waveKills,
-          losses: this.waveLosses,
-          score: this.score,
-        })
+        .show(this.wave, { kills: this.waveKills, losses: this.waveLosses, score: this.score })
         .then((key) => {
           this._applyUpgrade(key);
           this._awaitingUpgrade = false;
@@ -308,47 +305,39 @@ export class Game {
   _applyUpgrade(key) {
     const drones = this.playerSwarm.drones;
     switch (key) {
-      // ── Craft options ──────────────────────────────────────────────────────
-      case 'craft_interceptor':
-        this.playerSwarm.reinforce(2, 'interceptor');
-        break;
-      case 'craft_gunship':
-        this.playerSwarm.reinforce(2, 'gunship');
-        break;
-      case 'craft_sentinel':
-        this.playerSwarm.reinforce(2, 'sentinel');
-        break;
-
-      // ── Global upgrades ────────────────────────────────────────────────────
-      case 'drones':
-        this.playerSwarm.reinforce(5, 'standard');
-        break;
+      case 'craft_interceptor': this.playerSwarm.reinforce(2, 'interceptor'); break;
+      case 'craft_gunship':     this.playerSwarm.reinforce(2, 'gunship');     break;
+      case 'craft_sentinel':    this.playerSwarm.reinforce(2, 'sentinel');    break;
+      case 'drones':            this.playerSwarm.reinforce(5, 'standard');    break;
       case 'firepower':
         for (const d of drones) d.fireDamage = Math.round(d.fireDamage * 1.30);
         break;
       case 'speed':
-        for (const d of drones) d.maxSpeed = Math.round(d.maxSpeed * 1.20);
+        for (const d of drones) {
+          d._baseMaxSpeed = Math.round((d._baseMaxSpeed ?? d.maxSpeed) * 1.20);
+          d.maxSpeed = Math.round(d._baseMaxSpeed * this.cityResources.speedModifier());
+        }
         break;
-      default:
-        break;
+      default: break;
     }
   }
 
-  /** Returns threat score [0-1]: how many enemies are close to objective */
   threatScore() {
-    const THREAT_R = 250;
     const enemies = this.enemySwarm.drones;
     if (!enemies.length) return 0;
+    const THREAT_R = 250;
     let near = 0;
     for (const e of enemies) {
-      const dx = e.x - this.objective.x, dy = e.y - this.objective.y;
-      if (dx * dx + dy * dy < THREAT_R * THREAT_R) near++;
+      for (const obj of this.objectives) {
+        const dx = e.x - obj.x, dy = e.y - obj.y;
+        if (dx * dx + dy * dy < THREAT_R * THREAT_R) { near++; break; }
+      }
     }
     return near / enemies.length;
   }
 
   _checkGameOver() {
-    if (this.objective.health !== undefined && this.objective.health <= 0) {
+    if (this.cityResources.cityFallen()) {
       this.running = false;
       this.audio.gameOver();
       setTimeout(() => {
@@ -357,15 +346,17 @@ export class Game {
     }
   }
 
+  // ── Rendering ──────────────────────────────────────────────────────────────
+
   _draw() {
     this.canvas.clear();
     this.ctx.save();
     this.shake.apply(this.ctx);
 
     this._drawGrid();
-    // Draw hazard zones beneath everything else
+    this._drawCityConnections();
     for (const h of this.hazards) h.draw(this.ctx);
-    this.objective.draw(this.ctx);
+    for (const obj of this.objectives) obj.draw(this.ctx);
     this.commander.drawTargetZone(this.ctx);
     this._drawLasers();
     this.playerSwarm.draw(this.ctx);
@@ -375,36 +366,53 @@ export class Game {
     this.ctx.restore();
 
     this.waveAnnouncer.draw(this.ctx, this.canvas.width, this.canvas.height);
-    this._drawRelocateBanner();
-    this._drawObjectiveArrow();
+    this._drawAlertBanner();
     this._drawClickHint();
-    const healthPct = this.objective.maxHealth
-      ? Math.round((this.objective.health / this.objective.maxHealth) * 100)
-      : this.objective.health;
     this.hud.draw(
-      this.score, this.wave, healthPct,
-      this.playerSwarm.drones.length, this.playerSwarm.currentFormation,
-      this.dataCollector.sampleCount, this.dataCollector.serverStatus,
+      this.score, this.wave,
+      this.cityResources,
+      this.playerSwarm.drones.length,
+      this.playerSwarm.currentFormation,
+      this.dataCollector.sampleCount,
+      this.dataCollector.serverStatus,
       this.totalKills, this.totalLosses,
-      this.hazards.length, this.wave % 5 === 0
+      this.hazards.length,
+      this.wave % 5 === 0
     );
   }
 
-  _drawRelocateBanner() {
-    if (!this._objectiveRelocated) return;
-    // Show banner only during the wave delay period
-    if (this._waveDelay <= 0) { this._objectiveRelocated = false; return; }
+  /** Draw faint lines connecting the 3 objectives — city infrastructure */
+  _drawCityConnections() {
     const ctx = this.ctx;
-    const alpha = Math.min(1, this._waveDelay / 1.5);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(100,180,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 12]);
+    for (let i = 0; i < this.objectives.length; i++) {
+      for (let j = i + 1; j < this.objectives.length; j++) {
+        const a = this.objectives[i], b = this.objectives[j];
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  _drawAlertBanner() {
+    if (this._alertTimer <= 0 || !this._alertText) return;
+    const alpha = Math.min(1, this._alertTimer / 1.0);
+    const ctx = this.ctx;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = 'bold 18px monospace';
+    ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffcc00';
-    ctx.shadowColor = '#ff8800';
-    ctx.shadowBlur = 14;
-    ctx.fillText('⚡ OBJECTIVE RELOCATED', this.canvas.width / 2, this.canvas.height / 2 + 50);
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ff4444';
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 20;
+    ctx.fillText(this._alertText, this.canvas.width / 2, this.canvas.height / 2 - 40);
     ctx.restore();
   }
 
@@ -425,66 +433,6 @@ export class Game {
     ctx.restore();
   }
 
-  /** Arrow pointing from swarm center toward objective — shown first 8s */
-  _drawObjectiveArrow() {
-    if (this._objectiveArrowTimer <= 0) return;
-    const drones = this.playerSwarm.drones;
-    if (!drones.length) return;
-
-    const cx = drones.reduce((s, d) => s + d.x, 0) / drones.length;
-    const cy = drones.reduce((s, d) => s + d.y, 0) / drones.length;
-    const ox = this.objective.x, oy = this.objective.y;
-
-    const dx = ox - cx, dy = oy - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < 60) return; // already near objective
-
-    const nx = dx / dist, ny = dy / dist;
-    const arrowStart = 50;
-    const arrowLen = Math.min(dist - 50, 80);
-    if (arrowLen < 20) return;
-
-    const sx = cx + nx * arrowStart;
-    const sy = cy + ny * arrowStart;
-    const ex = sx + nx * arrowLen;
-    const ey = sy + ny * arrowLen;
-
-    const alpha = Math.min(1, this._objectiveArrowTimer / 2);
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = alpha * 0.85;
-    ctx.strokeStyle = '#ffcc00';
-    ctx.fillStyle = '#ffcc00';
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = '#ffcc00';
-    ctx.shadowBlur = 10;
-
-    // Arrow line
-    ctx.beginPath();
-    ctx.moveTo(sx, sy);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-
-    // Arrowhead
-    const headLen = 12;
-    const angle = Math.atan2(ny, nx);
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - headLen * Math.cos(angle - 0.4), ey - headLen * Math.sin(angle - 0.4));
-    ctx.lineTo(ex - headLen * Math.cos(angle + 0.4), ey - headLen * Math.sin(angle + 0.4));
-    ctx.closePath();
-    ctx.fill();
-
-    // Label
-    const lx = sx + nx * (arrowLen / 2);
-    const ly = sy + ny * (arrowLen / 2) - 14;
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('PROTECT OBJECTIVE', lx, ly);
-    ctx.restore();
-  }
-
-  /** "Click to move" hint — shown first 4s */
   _drawClickHint() {
     if (this._clickHintTimer <= 0) return;
     const alpha = Math.min(1, this._clickHintTimer / 1.5);
