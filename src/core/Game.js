@@ -21,6 +21,7 @@ import { getWaveStory } from '../data/StoryLines.js';
 import { RadarSweep } from './RadarSweep.js';
 import { DroneLab } from '../ui/DroneLab.js';
 import { nextVetCallsign } from '../data/PlayerIdentity.js';
+import { generateSideMission } from '../events/SideMission.js';
 
 export class Game {
   constructor() {
@@ -71,7 +72,13 @@ export class Game {
     this._playerIdentity = null;
 
     // ── Deployment phase (before enemies spawn each wave) ─────────────────────
-    this._deploymentPhase = 0;   // countdown in seconds; 0 = no deployment phase
+    this._deploymentPhase = 0;
+
+    // ── Side missions ─────────────────────────────────────────────────────────
+    this._sideMission           = null;   // active SideMission instance
+    this._sideMissionSpawnTimer = 0;      // countdown to spawn attempt
+    this._sideMissionTriedThisWave = true; // start true so wave 1 never spawns
+    this._nextWaveEnemyMult     = 1.0;    // sabotage reward: reduce next wave count
 
     // ── Keyboard shortcuts ────────────────────────────────────────────────────
     window.addEventListener('keydown', (e) => {
@@ -137,6 +144,9 @@ export class Game {
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
+    this._sideMission               = null;
+    this._sideMissionTriedThisWave  = true;
+    this._nextWaveEnemyMult         = 1.0;
     this.particles.particles.length = 0;
     this.playerSwarm.drones.length  = 0;
     this.enemySwarm.drones.length   = 0;
@@ -207,6 +217,19 @@ export class Game {
     this.waveAnnouncer.announce(this.wave, isBossWave, story, this._streak);
     this.audio.waveStart();
 
+    // Apply sabotage reward from previous wave
+    if (this._nextWaveEnemyMult < 1.0) {
+      const baseCount = Math.min(10 + this.wave * 3, 40);
+      const reduced   = Math.round(baseCount * this._nextWaveEnemyMult);
+      this._pendingEnemyOverride = reduced;
+      this._nextWaveEnemyMult   = 1.0;
+    }
+
+    // Clear last mission and reset spawn timer
+    this._sideMission                = null;
+    this._sideMissionTriedThisWave   = this.wave < 2;  // wave 1 = skip
+    this._sideMissionSpawnTimer      = 8 + Math.random() * 6;  // spawn 8–14s into wave
+
     // Reinforce player before enemies spawn
     if (this.wave > 1 && this.playerSwarm.drones.length < 20) {
       this.playerSwarm.reinforce(Math.min(5, 20 - this.playerSwarm.drones.length), 'standard');
@@ -218,14 +241,16 @@ export class Game {
       this._showAlert('📍 وزّع قواتك — Space للبدء');
     } else {
       // Wave 1: no deployment pause, just start
-      this.enemySwarm.spawnWave(this.wave);
+      this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
+      this._pendingEnemyOverride = undefined;
     }
   }
 
   _skipDeployment() {
     if (this._deploymentPhase <= 0) return;
     this._deploymentPhase = 0;
-    this.enemySwarm.spawnWave(this.wave);
+    this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
+    this._pendingEnemyOverride = undefined;
     this._showAlert('⚔ الهجوم!');
   }
 
@@ -259,7 +284,8 @@ export class Game {
       this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
       if (this._deploymentPhase <= 0) {
         this._deploymentPhase = 0;
-        this.enemySwarm.spawnWave(this.wave);
+        this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
+        this._pendingEnemyOverride = undefined;
         this._showAlert('⚔ الهجوم!');
       }
       return;  // skip combat, enemy AI, hazards during deployment
@@ -301,10 +327,57 @@ export class Game {
 
     this._applyHazards(dt);
     this._applyAutoRecovery(dt);
+    this._updateSideMission(dt);
     this._checkCombat(dt);
     this._checkObjectiveHits();
     this._checkWaveComplete();
     this._checkGameOver();
+  }
+
+  // ── Side missions ─────────────────────────────────────────────────────────
+
+  _updateSideMission(dt) {
+    // Try to spawn a mission once per wave
+    if (!this._sideMissionTriedThisWave && this._deploymentPhase <= 0) {
+      this._sideMissionSpawnTimer -= dt;
+      if (this._sideMissionSpawnTimer <= 0) {
+        this._sideMissionTriedThisWave = true;
+        if (Math.random() < 0.42) {
+          const result = generateSideMission(this.wave, this.canvas, this.objectives);
+          this._sideMission = result.mission;
+          this._showAlert(result.label);
+        }
+      }
+    }
+
+    const m = this._sideMission;
+    if (!m || m.complete || m.failed) return;
+
+    // Update active mission
+    if (m.type === 'escort') {
+      m.update(dt, this.playerSwarm.drones, this.enemySwarm.drones);
+    } else {
+      m.update(dt, this.playerSwarm.drones);
+    }
+
+    // React to outcome
+    if (m.complete) {
+      const r = m.reward;
+      this.score += Math.round(r.score * this._scoreMulti);
+      if (r.drones > 0) {
+        this.playerSwarm.reinforce(r.drones);
+        this._showAlert(`✅ مهمة مكتملة! +${r.drones} طائرات`);
+      }
+      if (r.nextWaveEnemyMult < 1.0) {
+        this._nextWaveEnemyMult = r.nextWaveEnemyMult;
+        this._showAlert(`💥 تخريب ناجح! الموجة القادمة −42% أعداء`);
+      }
+      this.particles.explode(
+        this.canvas.width / 2, this.canvas.height / 2, '#00ff88', 20,
+      );
+    } else if (m.failed) {
+      this._showAlert('❌ فشلت المهمة');
+    }
   }
 
   // ── Veteran system ────────────────────────────────────────────────────────
@@ -583,6 +656,9 @@ export class Game {
     this._drawLasers();
     this.playerSwarm.draw(ctx);
     this.enemySwarm.draw(ctx);
+    if (this._sideMission && !this._sideMission.complete && !this._sideMission.failed) {
+      this._sideMission.draw(ctx);
+    }
     this.particles.draw(ctx);
 
     ctx.restore();
@@ -595,6 +671,7 @@ export class Game {
     this._drawAlertBanner();
     this._drawClickHint();
     if (this._deploymentPhase > 0) this._drawDeploymentOverlay(ctx, W, H);
+    this._drawMissionStatus(ctx, W, H);
     const vetCount = this.playerSwarm.drones.filter(d => !d.dead && d._vet > 0).length;
     this.hud.draw(
       this.score, this.wave,
@@ -691,6 +768,25 @@ export class Game {
     ctx.fillText('انقر لتحريك قواتك  ·  Tab=تبديل A/B  ·  S=تقسيم  ·  Space=ابدأ الآن', W / 2, H - 90);
 
     ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  _drawMissionStatus(ctx, W, H) {
+    const m = this._sideMission;
+    if (!m || m.complete || m.failed) return;
+
+    const text  = m.statusText;
+    const alpha = 0.75;
+
+    ctx.save();
+    ctx.font      = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(0,255,136,${alpha})`;
+    ctx.shadowColor = '#00ff88';
+    ctx.shadowBlur  = 6;
+    ctx.fillText(text, W / 2, H - 60);
+    ctx.shadowBlur  = 0;
+    ctx.textAlign   = 'left';
     ctx.restore();
   }
 
