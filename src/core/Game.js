@@ -23,6 +23,7 @@ import { DroneLab } from '../ui/DroneLab.js';
 import { nextVetCallsign } from '../data/PlayerIdentity.js';
 import { generateSideMission } from '../events/SideMission.js';
 import { EmpTrap } from '../entities/EmpTrap.js';
+import { GatlingTower } from '../entities/GatlingTower.js';
 
 export class Game {
   constructor() {
@@ -87,6 +88,7 @@ export class Game {
       if (e.key === 's' || e.key === 'S')         this._splitOrMergeGroups();
       if (e.code === 'Space' || e.key === 'Enter') this._skipDeployment();
       if (e.key === 'e' || e.key === 'E')         this._toggleEmpMode();
+      if (e.key === 'g' || e.key === 'G')         this._toggleTowerMode();
     });
 
     // ── Tutorial hints ────────────────────────────────────────────────────────
@@ -120,6 +122,17 @@ export class Game {
     this._empTraps   = [];    // active EmpTrap instances
     this._empCharges = 3;     // traps available this wave
     this._empMode    = false; // placement mode active
+
+    // ── Phase-3 tower system ──────────────────────────────────────────────────
+    this._towers     = [];    // active GatlingTower instances (persist between waves)
+    this._towerMode  = false; // placement mode active
+    this._mouseX     = 0;     // cursor position for ghost preview
+    this._mouseY     = 0;
+    this.canvas.el.addEventListener('mousemove', (e) => {
+      const r = this.canvas.el.getBoundingClientRect();
+      this._mouseX = e.clientX - r.left;
+      this._mouseY = e.clientY - r.top;
+    });
 
     // Canvas click — capture phase so we intercept before Commander
     this.canvas.el.addEventListener('click', (e) => this._onCanvasClick(e), true);
@@ -164,6 +177,8 @@ export class Game {
     this._empTraps   = [];
     this._empCharges = 3;
     this._empMode    = false;
+    this._towers     = [];
+    this._towerMode  = false;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -224,18 +239,57 @@ export class Game {
   }
 
   _onCanvasClick(e) {
-    if (!this._empMode || !this.running) return;
-    if (this._empCharges <= 0) { this._empMode = false; return; }
-    // Block Commander from receiving this click
-    e.stopPropagation();
+    if (!this.running) return;
     const rect = this.canvas.el.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    this._empTraps.push(new EmpTrap(x, y));
-    this._empCharges--;
-    this._empMode = false;
+
+    if (this._towerMode) {
+      e.stopPropagation();
+      this._placeTower(x, y);
+      return;
+    }
+    if (this._empMode) {
+      if (this._empCharges <= 0) { this._empMode = false; return; }
+      e.stopPropagation();
+      this._empTraps.push(new EmpTrap(x, y));
+      this._empCharges--;
+      this._empMode = false;
+      this.canvas.el.style.cursor = '';
+      this._showAlert(`EMP وُضع ✓  (${this._empCharges} متبقية)`);
+    }
+  }
+
+  // ── Tower placement ───────────────────────────────────────────────────────
+
+  _toggleTowerMode() {
+    if (!this.running || this._awaitingUpgrade) return;
+    const MAX_TOWERS = 3;
+    if (this._towers.length >= MAX_TOWERS) {
+      this._showAlert(`الحد الأقصى ${MAX_TOWERS} أبراج على الخريطة`);
+      return;
+    }
+    if (this.score < GatlingTower.COST) {
+      this._showAlert(`مطلوب ${GatlingTower.COST} نقطة لبناء برج`);
+      return;
+    }
+    this._towerMode = !this._towerMode;
+    if (this._empMode) { this._empMode = false; }  // cancel EMP mode if active
+    this.canvas.el.style.cursor = this._towerMode ? 'crosshair' : '';
+  }
+
+  _placeTower(x, y) {
+    const MAX_TOWERS = 3;
+    if (this._towers.length >= MAX_TOWERS || this.score < GatlingTower.COST) {
+      this._towerMode = false;
+      this.canvas.el.style.cursor = '';
+      return;
+    }
+    this.score -= GatlingTower.COST;
+    this._towers.push(new GatlingTower(x, y));
+    this._towerMode = false;
     this.canvas.el.style.cursor = '';
-    this._showAlert(`EMP وُضع ✓  (${this._empCharges} متبقية)`);
+    this._showAlert(`برج Gatling بُني! (${3 - this._towers.length} مواضع متبقية)`);
   }
 
   _splitOrMergeGroups() {
@@ -375,6 +429,44 @@ export class Game {
     // ── EMP traps ─────────────────────────────────────────────────────────────
     for (const t of this._empTraps) t.update(dt, this.enemySwarm.drones);
     this._empTraps = this._empTraps.filter(t => !t.dead);
+
+    // ── Gatling towers ────────────────────────────────────────────────────────
+    for (const tower of this._towers) {
+      const shot = tower.update(dt, this.enemySwarm.drones);
+      if (shot) {
+        this._lasers.push({ x1: shot.x1, y1: shot.y1, x2: shot.x2, y2: shot.y2,
+                            color: '#ffcc00', ttl: 0.06 });
+        if (shot.killed) {
+          const role = shot.target.role;
+          const color = role === 'commander' ? '#ffaa00'
+                      : role === 'kamikaze'  ? '#ff4400'
+                      : '#ff3c3c';
+          this.particles.explode(shot.target.x, shot.target.y, color,
+                                 role === 'commander' ? 18 : 10);
+          this.audio.enemyDestroyed();
+          const scoreBonus = role === 'commander' ? 50 : role === 'kamikaze' ? 20 : 10;
+          const gained = Math.round(scoreBonus * this._scoreMulti);
+          this.score += gained;
+          this.waveKills++;
+          this.totalKills++;
+          this._scorePopups.push({ x: shot.target.x, y: shot.target.y,
+                                   text: `+${gained}`, ttl: 1.2, maxTtl: 1.2 });
+          const feedLabel = role === 'commander' ? '★ COMMANDER' : role.toUpperCase();
+          this._killFeed.unshift({ text: `GATLING ${feedLabel}`, ttl: 3.5, maxTtl: 3.5 });
+          if (this._killFeed.length > 5) this._killFeed.length = 5;
+        }
+      }
+    }
+    // Remove destroyed towers + explosion particles
+    const prevCount = this._towers.length;
+    this._towers = this._towers.filter(t => {
+      if (t.dead) {
+        this.particles.explode(t.x, t.y, '#ffcc00', 14);
+        this._showAlert('⚠ برج Gatling دُمِّر!');
+        return false;
+      }
+      return true;
+    });
 
     this.particles.update(dt);
     this.shake.update(dt);
@@ -833,6 +925,41 @@ export class Game {
       ctx.fillStyle = '#00d4ff';
       ctx.fillText('E = EMP', 18, empY + 12);
     }
+
+    // ── Tower HUD badge ───────────────────────────────────────────────────────
+    const towerY = empY + 28;
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,200,0,0.60)';
+    ctx.fillText('GTL', 18, towerY);
+    // Tower slot pips (max 3)
+    for (let i = 0; i < 3; i++) {
+      const occupied = i < this._towers.length;
+      ctx.fillStyle   = occupied ? 'rgba(255,200,0,0.85)' : 'rgba(80,60,0,0.45)';
+      ctx.shadowColor = occupied ? '#ffcc00' : 'transparent';
+      ctx.shadowBlur  = occupied ? 5 : 0;
+      ctx.fillRect(44 + i * 12, towerY - 9, 8, 8);
+    }
+    ctx.shadowBlur = 0;
+    if (this._towerMode) {
+      const pulse2 = 0.6 + 0.4 * Math.sin(Date.now() / 200);
+      ctx.globalAlpha = pulse2;
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffdd00';
+      ctx.shadowColor = '#ffcc00';
+      ctx.shadowBlur = 10;
+      ctx.fillText(`[ انقر لبناء برج Gatling  (${GatlingTower.COST} نقطة) ]`, W / 2, H - 30);
+      ctx.shadowBlur = 0;
+    } else if (this.score >= GatlingTower.COST && this._towers.length < 3) {
+      ctx.globalAlpha = 0.45;
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#ffcc00';
+      ctx.fillText('G = برج', 18, towerY + 12);
+    }
+
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';
     ctx.restore();
@@ -855,6 +982,13 @@ export class Game {
     this._drawCityConnections();
     for (const h of this.hazards) h.draw(ctx);
     for (const t of this._empTraps) t.draw(ctx);
+    for (const tw of this._towers) tw.draw(ctx);
+    // Ghost preview for tower placement
+    if (this._towerMode) {
+      const ghost = new GatlingTower(this._mouseX, this._mouseY);
+      ghost._angle = -Math.PI / 4;
+      ghost.draw(ctx, true);
+    }
     for (const obj of this.objectives) obj.draw(ctx);
     this.commander.drawTargetZone(ctx);
     this._drawLasers();
