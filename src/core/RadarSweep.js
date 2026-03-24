@@ -42,12 +42,17 @@ export class RadarSweep {
       const ea = Math.atan2(e.y - cy, e.x - cx);
       if (!this._swept(prev, this.angle, ea)) continue;
 
+      // Stealth drones not shown on radar until revealed by proximity
+      if (e.role === 'stealth' && !e._revealed) continue;
+
       // Determine blip appearance
-      const isEnemy = e.type === 'enemy';
-      const color   = isEnemy ? '#ff4444' : (e._teamColor ?? '#00ccff');
-      const shape   = isEnemy ? 'circle'  : (e._radarShape ?? 'circle');
-      const size    = (e._isBoss || e.role === 'gunship') ? 6.5 : 3.5;
-      const vet     = e._vet ?? 0;
+      const isEnemy    = e.type === 'enemy';
+      const color      = isEnemy ? '#ff4444' : (e._teamColor ?? '#00ccff');
+      const shape      = isEnemy ? 'circle'  : (e._radarShape ?? 'circle');
+      const size       = (e._isBoss || e.role === 'boss' || e.role === 'commander') ? 6.0
+                       : e.role === 'kamikaze' ? 4.5
+                       : 3.5;
+      const vet        = e._vet ?? 0;
 
       const alreadyKnown = this._blips.has(e);
       this._blips.set(e, { x: e.x, y: e.y, age: 0, color, shape, size, vet });

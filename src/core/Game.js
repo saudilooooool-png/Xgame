@@ -375,9 +375,15 @@ export class Game {
                           color: '#00d4ff', ttl: 0.08 });
       if (target.takeDamage(p.fireDamage)) {
         if (p._kills !== undefined) p._kills++;   // vet kill tracking
-        this.particles.explode(target.x, target.y, '#ff3c3c', 10);
+        const role = target.role;
+        const color = role === 'commander' ? '#ffaa00'
+                    : role === 'kamikaze'  ? '#ff4400'
+                    : '#ff3c3c';
+        this.particles.explode(target.x, target.y, color, role === 'commander' ? 18 : 10);
         this.audio.enemyDestroyed();
-        this.score += Math.round(10 * this._scoreMulti);
+        const scoreBonus = role === 'commander' ? 50 : role === 'kamikaze' ? 20 : 10;
+        this.score += Math.round(scoreBonus * this._scoreMulti);
+        if (role === 'commander') this._showAlert('⭐ القائد أُسقط! الأعداء أضعف!');
         this.waveKills++;
         this.totalKills++;
       }
@@ -416,9 +422,12 @@ export class Game {
           this.particles.explode(e.x, e.y, '#ff8800', 8);
           enemies.splice(j, 1);
           const prevPct = obj.health / obj.maxHealth;
-          obj.health = Math.max(0, obj.health - 10);
-          this.shake.trigger(10, 0.35);
+          // Kamikaze deals heavy explosion damage
+          const hitDmg = e.role === 'kamikaze' ? 35 : 10;
+          obj.health = Math.max(0, obj.health - hitDmg);
+          this.shake.trigger(e.role === 'kamikaze' ? 22 : 10, e.role === 'kamikaze' ? 0.55 : 0.35);
           this.audio.objectiveHit();
+          if (e.role === 'kamikaze') this._showAlert(`💥 انتحاري! ضرر مضاعف!`);
           this._perfectWave = false;   // wave is no longer perfect
 
           if (obj.health <= 0 && prevPct > 0) {
