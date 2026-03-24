@@ -22,6 +22,7 @@ import { RadarSweep } from './RadarSweep.js';
 import { DroneLab } from '../ui/DroneLab.js';
 import { nextVetCallsign } from '../data/PlayerIdentity.js';
 import { generateSideMission } from '../events/SideMission.js';
+import { EmpTrap } from '../entities/EmpTrap.js';
 
 export class Game {
   constructor() {
@@ -82,9 +83,10 @@ export class Game {
 
     // ── Keyboard shortcuts ────────────────────────────────────────────────────
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab')                       { e.preventDefault(); this._toggleGroup(); }
-      if (e.key === 's' || e.key === 'S')       this._splitOrMergeGroups();
+      if (e.key === 'Tab')                         { e.preventDefault(); this._toggleGroup(); }
+      if (e.key === 's' || e.key === 'S')         this._splitOrMergeGroups();
       if (e.code === 'Space' || e.key === 'Enter') this._skipDeployment();
+      if (e.key === 'e' || e.key === 'E')         this._toggleEmpMode();
     });
 
     // ── Tutorial hints ────────────────────────────────────────────────────────
@@ -113,6 +115,14 @@ export class Game {
     this._killFeed    = [];   // { text, ttl, maxTtl }
     this._hitFlash    = 0;    // 0-1, decays per frame
     this._vignetteHP  = 1;    // 0-1 smoothed min-objective ratio
+
+    // ── Phase-2 trap system ───────────────────────────────────────────────────
+    this._empTraps   = [];    // active EmpTrap instances
+    this._empCharges = 3;     // traps available this wave
+    this._empMode    = false; // placement mode active
+
+    // Canvas click — capture phase so we intercept before Commander
+    this.canvas.el.addEventListener('click', (e) => this._onCanvasClick(e), true);
 
     new StartScreen().show().then(() => this._runMissionSetup());
   }
@@ -151,6 +161,9 @@ export class Game {
     this._killFeed    = [];
     this._hitFlash    = 0;
     this._vignetteHP  = 1;
+    this._empTraps   = [];
+    this._empCharges = 3;
+    this._empMode    = false;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -198,6 +211,33 @@ export class Game {
     this._showAlert(`المجموعة ${this.playerSwarm.activeGroup} نشطة`);
   }
 
+  // ── EMP trap placement ────────────────────────────────────────────────────
+
+  _toggleEmpMode() {
+    if (!this.running || this._awaitingUpgrade) return;
+    if (this._empCharges <= 0) {
+      this._showAlert('لا توجد فخاخ EMP متبقية');
+      return;
+    }
+    this._empMode = !this._empMode;
+    this.canvas.el.style.cursor = this._empMode ? 'crosshair' : '';
+  }
+
+  _onCanvasClick(e) {
+    if (!this._empMode || !this.running) return;
+    if (this._empCharges <= 0) { this._empMode = false; return; }
+    // Block Commander from receiving this click
+    e.stopPropagation();
+    const rect = this.canvas.el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    this._empTraps.push(new EmpTrap(x, y));
+    this._empCharges--;
+    this._empMode = false;
+    this.canvas.el.style.cursor = '';
+    this._showAlert(`EMP وُضع ✓  (${this._empCharges} متبقية)`);
+  }
+
   _splitOrMergeGroups() {
     if (!this.running) return;
     const allInA = this.playerSwarm.drones.every(d => d._group === 'A');
@@ -216,6 +256,10 @@ export class Game {
     this.waveKills    = 0;
     this.waveLosses   = 0;
     this._perfectWave = true;
+    // Replenish EMP charges each wave (base 3, +1 every 5 waves)
+    this._empTraps   = [];
+    this._empMode    = false;
+    this._empCharges = 3 + Math.floor(this.wave / 5);
 
     this.hazards = generateHazards(
       this.wave, this.canvas.width, this.canvas.height,
@@ -317,6 +361,21 @@ export class Game {
 
     this.playerSwarm.update(dt, this.enemySwarm.drones);
     this.enemySwarm.update(dt, this.playerSwarm.drones);
+
+    // ── Stun freeze: stop stunned enemies after physics update ────────────────
+    for (const e of this.enemySwarm.drones) {
+      if ((e._stunTimer ?? 0) > 0) {
+        e._stunTimer -= dt;
+        e.vx = 0;
+        e.vy = 0;
+        if (e._stunTimer < 0) e._stunTimer = 0;
+      }
+    }
+
+    // ── EMP traps ─────────────────────────────────────────────────────────────
+    for (const t of this._empTraps) t.update(dt, this.enemySwarm.drones);
+    this._empTraps = this._empTraps.filter(t => !t.dead);
+
     this.particles.update(dt);
     this.shake.update(dt);
     this.waveAnnouncer.update(dt);
@@ -481,6 +540,7 @@ export class Game {
     }
 
     for (const e of enemies) {
+      if ((e._stunTimer ?? 0) > 0) continue;   // stunned — can't fire
       const target = e.findTarget(friendly);
       if (!target) continue;
       if (!e.tickFire(dt)) continue;
@@ -738,6 +798,44 @@ export class Game {
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';
     ctx.restore();
+
+    // ── EMP HUD badge ─────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    // Charge pips below kill counter (left side ~y=150)
+    const empY = 148;
+    ctx.fillStyle = 'rgba(0,210,255,0.55)';
+    ctx.fillText('EMP', 18, empY);
+    for (let i = 0; i < 3 + Math.floor(this.wave / 5); i++) {
+      const filled = i < this._empCharges;
+      ctx.fillStyle = filled ? 'rgba(0,230,255,0.85)' : 'rgba(0,80,100,0.4)';
+      ctx.shadowColor = filled ? '#00ddff' : 'transparent';
+      ctx.shadowBlur  = filled ? 5 : 0;
+      ctx.fillRect(44 + i * 12, empY - 9, 8, 8);
+    }
+    ctx.shadowBlur = 0;
+    if (this._empMode) {
+      // Pulsing "PLACE EMP" banner
+      const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 200);
+      ctx.globalAlpha = pulse;
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#00eeff';
+      ctx.shadowColor = '#00eeff';
+      ctx.shadowBlur = 10;
+      ctx.fillText('[ انقر لوضع الفخ EMP ]', W / 2, H - 30);
+      ctx.shadowBlur = 0;
+    } else if (this._empCharges > 0) {
+      ctx.globalAlpha = 0.45;
+      ctx.font = '9px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#00d4ff';
+      ctx.fillText('E = EMP', 18, empY + 12);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -756,6 +854,7 @@ export class Game {
 
     this._drawCityConnections();
     for (const h of this.hazards) h.draw(ctx);
+    for (const t of this._empTraps) t.draw(ctx);
     for (const obj of this.objectives) obj.draw(ctx);
     this.commander.drawTargetZone(ctx);
     this._drawLasers();
