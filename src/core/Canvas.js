@@ -15,7 +15,7 @@ export class Canvas {
   }
 
   clear() {
-    this.ctx.fillStyle = '#0a0f1a';
+    this.ctx.fillStyle = '#010d06';
     this.ctx.fillRect(0, 0, this.width, this.height);
   }
 }

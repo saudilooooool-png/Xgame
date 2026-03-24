@@ -18,6 +18,7 @@ import { StartScreen } from '../ui/StartScreen.js';
 import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
 import { getWaveStory } from '../data/StoryLines.js';
+import { RadarSweep } from './RadarSweep.js';
 
 export class Game {
   constructor() {
@@ -45,6 +46,8 @@ export class Game {
     this.gameOverScreen.onExport(() => this.dataCollector.download());
 
     this.upgradeScreen = new UpgradeScreen();
+
+    this.radarSweep = new RadarSweep();
 
     this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
@@ -208,6 +211,20 @@ export class Game {
     this.particles.update(dt);
     this.shake.update(dt);
     this.waveAnnouncer.update(dt);
+
+    // ── Radar sweep ───────────────────────────────────────────────────
+    const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+    const allEntities = [...this.playerSwarm.drones, ...this.enemySwarm.drones];
+    this.radarSweep.update(dt, cx, cy, allEntities);
+
+    // ── Objective threat state (drives spinning danger ring) ──────────
+    const THREAT_R2 = 200 * 200;
+    for (const obj of this.objectives) {
+      obj._threatened = this.enemySwarm.drones.some(e => {
+        const dx = e.x - obj.x, dy = e.y - obj.y;
+        return dx * dx + dy * dy < THREAT_R2;
+      });
+    }
 
     this._applyHazards(dt);
     this._applyAutoRecovery(dt);
@@ -431,23 +448,33 @@ export class Game {
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   _draw() {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // 1. Clear + radar background (fixed — not shaken)
     this.canvas.clear();
-    this.ctx.save();
-    this.shake.apply(this.ctx);
+    this._drawRadarBackground();
 
-    this._drawGrid();
+    // 2. Game-world elements (screen-shake applied)
+    ctx.save();
+    this.shake.apply(ctx);
+
     this._drawCityConnections();
-    for (const h of this.hazards) h.draw(this.ctx);
-    for (const obj of this.objectives) obj.draw(this.ctx);
-    this.commander.drawTargetZone(this.ctx);
+    for (const h of this.hazards) h.draw(ctx);
+    for (const obj of this.objectives) obj.draw(ctx);
+    this.commander.drawTargetZone(ctx);
     this._drawLasers();
-    this.playerSwarm.draw(this.ctx);
-    this.enemySwarm.draw(this.ctx);
-    this.particles.draw(this.ctx);
+    this.playerSwarm.draw(ctx);
+    this.enemySwarm.draw(ctx);
+    this.particles.draw(ctx);
 
-    this.ctx.restore();
+    ctx.restore();
 
-    this.waveAnnouncer.draw(this.ctx, this.canvas.width, this.canvas.height);
+    // 3. Radar sweep overlay (fixed — not shaken)
+    this.radarSweep.draw(ctx, W / 2, H / 2, W, H);
+
+    // 4. UI
+    this.waveAnnouncer.draw(ctx, W, H);
     this._drawAlertBanner();
     this._drawClickHint();
     this.hud.draw(
@@ -466,9 +493,9 @@ export class Game {
   _drawCityConnections() {
     const ctx = this.ctx;
     ctx.save();
-    ctx.strokeStyle = 'rgba(100,180,255,0.07)';
+    ctx.strokeStyle = 'rgba(0,200,80,0.13)';
     ctx.lineWidth = 1;
-    ctx.setLineDash([8, 14]);
+    ctx.setLineDash([6, 14]);
     for (let i = 0; i < this.objectives.length; i++) {
       for (let j = i + 1; j < this.objectives.length; j++) {
         const a = this.objectives[i], b = this.objectives[j];
@@ -529,21 +556,87 @@ export class Game {
     ctx.restore();
   }
 
-  _drawGrid() {
-    this.ctx.strokeStyle = 'rgba(30,60,90,0.22)';
-    this.ctx.lineWidth = 1;
-    const step = 60;
-    for (let x = 0; x < this.canvas.width; x += step) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, 0);
-      this.ctx.lineTo(x, this.canvas.height);
-      this.ctx.stroke();
+  /**
+   * Radar background — concentric rings, crosshairs, bearing labels, scanlines.
+   * Drawn BEFORE the shake transform so it stays fixed on screen.
+   */
+  _drawRadarBackground() {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    const cx = W / 2, cy = H / 2;
+    const maxR = Math.sqrt(W * W + H * H) / 2;
+
+    // CRT scanlines (horizontal, every 3 px)
+    ctx.fillStyle = 'rgba(0,0,0,0.04)';
+    for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+
+    // Concentric rings
+    ctx.strokeStyle = 'rgba(0,200,80,0.13)';
+    ctx.lineWidth   = 1;
+    for (const frac of [0.22, 0.44, 0.66, 0.88]) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, maxR * frac, 0, Math.PI * 2);
+      ctx.stroke();
     }
-    for (let y = 0; y < this.canvas.height; y += step) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(0, y);
-      this.ctx.lineTo(this.canvas.width, y);
-      this.ctx.stroke();
+
+    // Crosshairs (dashed)
+    ctx.strokeStyle = 'rgba(0,200,80,0.10)';
+    ctx.setLineDash([8, 18]);
+    ctx.beginPath(); ctx.moveTo(cx, 0);    ctx.lineTo(cx, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,  cy);   ctx.lineTo(W, cy); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 45° diagonal lines (very faint)
+    ctx.strokeStyle = 'rgba(0,200,80,0.05)';
+    const d = maxR * 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - d, cy - d); ctx.lineTo(cx + d, cy + d); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + d, cy - d); ctx.lineTo(cx - d, cy + d); ctx.stroke();
+
+    // Tick marks on rings (single path for perf)
+    ctx.strokeStyle = 'rgba(0,200,80,0.22)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    for (const frac of [0.22, 0.44, 0.66, 0.88]) {
+      const r = maxR * frac;
+      for (let deg = 0; deg < 360; deg += 10) {
+        const a    = (deg * Math.PI) / 180;
+        const tick = deg % 30 === 0 ? 5 : 2.5;
+        ctx.moveTo(cx + Math.cos(a) * (r - tick), cy + Math.sin(a) * (r - tick));
+        ctx.lineTo(cx + Math.cos(a) * (r + tick), cy + Math.sin(a) * (r + tick));
+      }
     }
+    ctx.stroke();
+
+    // Bearing labels
+    const labelR   = maxR * 0.93;
+    const bearings = [
+      { a: -Math.PI / 2,      label: 'N',   bold: true },
+      { a:  0,                label: 'E',   bold: true },
+      { a:  Math.PI / 2,      label: 'S',   bold: true },
+      { a:  Math.PI,          label: 'W',   bold: true },
+      { a: -Math.PI * 3 / 4,  label: '315' },
+      { a: -Math.PI / 4,      label: '045' },
+      { a:  Math.PI / 4,      label: '135' },
+      { a:  Math.PI * 3 / 4,  label: '225' },
+    ];
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    for (const b of bearings) {
+      ctx.font      = b.bold ? 'bold 11px monospace' : '9px monospace';
+      ctx.fillStyle = b.bold ? 'rgba(0,220,90,0.60)' : 'rgba(0,200,80,0.30)';
+      ctx.fillText(b.label,
+        cx + Math.cos(b.a) * labelR,
+        cy + Math.sin(b.a) * labelR
+      );
+    }
+
+    // Centre dot
+    ctx.fillStyle   = 'rgba(0,255,100,0.45)';
+    ctx.shadowColor = '#00ff88';
+    ctx.shadowBlur  = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
   }
 }
