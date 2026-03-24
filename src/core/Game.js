@@ -24,6 +24,7 @@ import { nextVetCallsign } from '../data/PlayerIdentity.js';
 import { generateSideMission } from '../events/SideMission.js';
 import { EmpTrap } from '../entities/EmpTrap.js';
 import { GatlingTower } from '../entities/GatlingTower.js';
+import { EnemyBase } from '../entities/EnemyBase.js';
 
 export class Game {
   constructor() {
@@ -89,6 +90,14 @@ export class Game {
       if (e.code === 'Space' || e.key === 'Enter') this._skipDeployment();
       if (e.key === 'e' || e.key === 'E')         this._toggleEmpMode();
       if (e.key === 'g' || e.key === 'G')         this._toggleTowerMode();
+      // Quick menu & its number selections
+      if (e.key === 'r' || e.key === 'R')         this._toggleQuickMenu();
+      if (this._quickMenuOpen) {
+        if (e.key === '1') this._quickAction(1);
+        if (e.key === '2') this._quickAction(2);
+        if (e.key === '3') this._quickAction(3);
+        if (e.key === 'Escape') this._quickMenuOpen = false;
+      }
     });
 
     // ── Tutorial hints ────────────────────────────────────────────────────────
@@ -124,6 +133,18 @@ export class Game {
     this._slowMo     = 0;    // 0-1; 1=full slow, decays in real time
     this._timeScale  = 1;    // physics dt multiplier (updated in _loop)
     this._waveWipe   = 0;    // 0-1; plays before upgrade screen
+
+    // ── Enemy base ────────────────────────────────────────────────────────────
+    this._enemyBase        = null;  // EnemyBase instance (wave 3+)
+    this._baseBonusWaves   = 0;     // waves remaining with enemy-count reduction
+
+    // ── Orbital scan (radar escape valve) ────────────────────────────────────
+    this._orbitalScan      = 0;     // seconds remaining; when >0 all enemies visible
+    this.ORBITAL_SCAN_COST = 200;   // score cost
+    this.ORBITAL_SCAN_DUR  = 4;     // seconds of full reveal
+
+    // ── Quick actions menu ────────────────────────────────────────────────────
+    this._quickMenuOpen    = false;
 
     // ── Phase-2 trap system ───────────────────────────────────────────────────
     this._empTraps   = [];    // active EmpTrap instances
@@ -191,6 +212,10 @@ export class Game {
     this._slowMo     = 0;
     this._timeScale  = 1;
     this._waveWipe   = 0;
+    this._enemyBase        = null;
+    this._baseBonusWaves   = 0;
+    this._orbitalScan      = 0;
+    this._quickMenuOpen    = false;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -337,12 +362,20 @@ export class Game {
     this.waveAnnouncer.announce(this.wave, isBossWave, story, this._streak);
     this.audio.waveStart();
 
-    // Apply sabotage reward from previous wave
-    if (this._nextWaveEnemyMult < 1.0) {
+    // Apply sabotage / base-destruction wave-count reduction
+    const activeMult = Math.min(this._nextWaveEnemyMult,
+                                this._baseBonusWaves > 0 ? 0.80 : 1.0);
+    if (this._baseBonusWaves > 0) this._baseBonusWaves--;
+    if (activeMult < 1.0) {
       const baseCount = Math.min(10 + this.wave * 3, 40);
-      const reduced   = Math.round(baseCount * this._nextWaveEnemyMult);
-      this._pendingEnemyOverride = reduced;
+      this._pendingEnemyOverride = Math.round(baseCount * activeMult);
       this._nextWaveEnemyMult   = 1.0;
+    }
+
+    // ── Enemy base: spawn fresh each wave on wave 3+ (if not already alive) ──
+    if (this.wave >= 3 && (!this._enemyBase || this._enemyBase.dead)) {
+      const W = this.canvas.width, H = this.canvas.height;
+      this._enemyBase = new EnemyBase(W * 0.50, H * 0.06, this.wave);
     }
 
     // Clear last mission and reset spawn timer
@@ -478,9 +511,35 @@ export class Game {
     this.shake.update(dt);
     this.waveAnnouncer.update(dt);
 
+    // ── Enemy base: update + turret fire ─────────────────────────────
+    if (this._enemyBase && !this._enemyBase.dead) {
+      this._enemyBase.update(dt);
+      const turretShots = this._enemyBase.shootTurrets(this.playerSwarm.drones);
+      for (const s of turretShots) {
+        this._lasers.push({ x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2,
+                            color: '#ff8800', ttl: 0.10 });
+        if (s.killed) {
+          this.particles.explode(s.target.x, s.target.y, '#00d4ff', 6);
+          this.waveLosses++;
+          this.totalLosses++;
+          this._hitFlash = Math.min(1, this._hitFlash + 0.35);
+        }
+      }
+      this.playerSwarm.drones = this.playerSwarm.drones.filter(d => !d.dead);
+    }
+
+    // ── Orbital scan: decay + force-reveal ────────────────────────────
+    if (this._orbitalScan > 0) {
+      this._orbitalScan -= dt;
+      const revealTargets = [...this.enemySwarm.drones];
+      if (this._enemyBase && !this._enemyBase.dead) revealTargets.push(this._enemyBase);
+      this.radarSweep.forceReveal(revealTargets);
+    }
+
     // ── Radar sweep ───────────────────────────────────────────────────
     const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
     const allEntities = [...this.playerSwarm.drones, ...this.enemySwarm.drones];
+    if (this._enemyBase && !this._enemyBase.dead) allEntities.push(this._enemyBase);
     this.radarSweep.update(dt, cx, cy, allEntities);
 
     // ── Objective threat state (drives spinning danger ring) ──────────
@@ -660,13 +719,27 @@ export class Game {
 
     // Special alerts
     if (role === 'commander') this._showAlert('⭐ القائد أُسقط! الأعداء أضعف!');
+    if (role === 'base') {
+      // Extra boom + wave-count reduction reward
+      this.particles.explode(x, y, '#ff8800', 30);
+      this.particles.explode(x, y, '#ff3300', 20);
+      if (this._enemyBase) {
+        this.score += this._enemyBase.scoreReward - gained;  // top up to full reward
+        this._baseBonusWaves = 2;
+      }
+      this._showAlert('💥 القاعدة دُمِّرت! الموجات القادمة أضعف!');
+      this.shake.trigger(0.8);
+    }
   }
 
   // ── Combat ─────────────────────────────────────────────────────────────────
 
   _checkCombat(dt) {
     const friendly = this.playerSwarm.drones;
-    const enemies  = this.enemySwarm.drones;
+    // Include the enemy base as an attack target when present and alive
+    const enemies = (this._enemyBase && !this._enemyBase.dead)
+      ? [...this.enemySwarm.drones, this._enemyBase]
+      : this.enemySwarm.drones;
 
     for (const p of friendly) {
       const target = p.findTarget(enemies);
@@ -699,7 +772,8 @@ export class Game {
     }
 
     this.playerSwarm.drones = friendly.filter(d => !d.dead);
-    this.enemySwarm.drones  = enemies.filter(d => !d.dead);
+    // Exclude the base (managed separately); filter only real enemy drones
+    this.enemySwarm.drones  = enemies.filter(d => !d.dead && d !== this._enemyBase);
   }
 
   _checkObjectiveHits() {
@@ -737,6 +811,45 @@ export class Game {
   _showAlert(text) {
     this._alertText  = text;
     this._alertTimer = 3.0;
+  }
+
+  // ── Quick action menu (R key) ─────────────────────────────────────────────
+
+  _toggleQuickMenu() {
+    if (!this.running) return;
+    this._quickMenuOpen = !this._quickMenuOpen;
+  }
+
+  /**
+   * Execute a quick-menu action by slot number.
+   * 1 = reinforce +5 standard   (150 pts)
+   * 2 = reinforce +3 heavy      (220 pts)
+   * 3 = orbital scan            (ORBITAL_SCAN_COST pts)
+   */
+  _quickAction(slot) {
+    this._quickMenuOpen = false;
+
+    const COSTS = { 1: 150, 2: 220, 3: this.ORBITAL_SCAN_COST };
+    const cost  = COSTS[slot] ?? 0;
+
+    if (this.score < cost) {
+      this._showAlert(`❌ نقاط غير كافية (مطلوب ${cost})`);
+      return;
+    }
+
+    if (slot === 1) {
+      this.score -= cost;
+      this.playerSwarm.reinforce(5, 'standard');
+      this._showAlert('+5 طائرات تعزيز أُطلقت!');
+    } else if (slot === 2) {
+      this.score -= cost;
+      this.playerSwarm.reinforce(3, 'heavy');
+      this._showAlert('+3 طائرات ثقيلة أُطلقت!');
+    } else if (slot === 3) {
+      this.score -= cost;
+      this._orbitalScan = this.ORBITAL_SCAN_DUR;
+      this._showAlert(`🛰 مسح مداري: ${this.ORBITAL_SCAN_DUR}s كشف كامل`);
+    }
   }
 
   // ── Wave complete ──────────────────────────────────────────────────────────
@@ -1158,6 +1271,8 @@ export class Game {
       ghost.draw(ctx, true);
     }
     for (const obj of this.objectives) obj.draw(ctx);
+    // Draw enemy base (above objectives, below swarms)
+    if (this._enemyBase) this._enemyBase.draw(ctx);
     this.commander.drawTargetZone(ctx);
     this._drawLasers();
     this.playerSwarm.draw(ctx);
@@ -1196,6 +1311,11 @@ export class Game {
       vetCount,
       this._playerIdentity?.callsign ?? ''
     );
+
+    // Quick menu overlay (drawn last so it's always on top)
+    if (this._quickMenuOpen) this._drawQuickMenu(ctx, W, H);
+    // Orbital scan HUD indicator
+    if (this._orbitalScan > 0)  this._drawOrbitalScanHUD(ctx, W, H);
   }
 
   _drawCityConnections() {
@@ -1396,5 +1516,101 @@ export class Game {
     ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
+  }
+
+  // ── Quick action menu overlay ─────────────────────────────────────────────
+
+  _drawQuickMenu(ctx, W, H) {
+    const items = [
+      { key: '1', label: '+5 مسيرات عادية',  cost: 150 },
+      { key: '2', label: '+3 مسيرات ثقيلة',  cost: 220 },
+      { key: '3', label: '🛰 مسح مداري (4s)', cost: this.ORBITAL_SCAN_COST },
+    ];
+    const pW = 220, pH = 28, pad = 10, headerH = 28;
+    const totalH = headerH + items.length * (pH + 4) + pad;
+    const pX = W / 2 - pW / 2;
+    const pY = H / 2 - totalH / 2;
+
+    ctx.save();
+    // Backdrop
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle   = 'rgba(0,12,26,0.92)';
+    ctx.strokeStyle = 'rgba(0,200,255,0.45)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.roundRect(pX - pad, pY - pad, pW + pad * 2, totalH + pad, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+    // Header
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00d4ff';
+    ctx.fillText('⚡ قائمة سريعة  [R / Esc للإغلاق]', W / 2, pY + 16);
+
+    // Items
+    items.forEach((item, i) => {
+      const iy   = pY + headerH + 4 + i * (pH + 4);
+      const canAfford = this.score >= item.cost;
+
+      ctx.globalAlpha = canAfford ? 1 : 0.4;
+      ctx.fillStyle   = 'rgba(0,30,50,0.85)';
+      ctx.strokeStyle = canAfford ? 'rgba(0,200,255,0.35)' : 'rgba(100,100,100,0.2)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.roundRect(pX, iy, pW, pH, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = canAfford ? '#e0f8ff' : '#556677';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`[${item.key}]  ${item.label}`, pX + 8, iy + 18);
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = canAfford ? '#ffcc44' : '#445566';
+      ctx.fillText(`${item.cost}pt`, pX + pW - 8, iy + 18);
+    });
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  // ── Orbital scan HUD indicator ────────────────────────────────────────────
+
+  _drawOrbitalScanHUD(ctx, W, H) {
+    const frac  = Math.max(0, this._orbitalScan / this.ORBITAL_SCAN_DUR);
+    const alpha = Math.min(1, this._orbitalScan * 2);  // fade in/out
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+
+    // Progress arc at top-right corner
+    const cx = W - 36, cy = 36, r = 18;
+    ctx.strokeStyle = 'rgba(0,255,200,0.25)';
+    ctx.lineWidth   = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#00ffcc';
+    ctx.shadowColor = '#00ffcc';
+    ctx.shadowBlur  = 10;
+    ctx.lineWidth   = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00ffcc';
+    ctx.fillText('🛰', cx, cy + 4);
+    ctx.fillText(`${this._orbitalScan.toFixed(1)}s`, cx, cy + 16);
+
+    ctx.globalAlpha = 1;
+    ctx.textAlign   = 'left';
+    ctx.restore();
   }
 }

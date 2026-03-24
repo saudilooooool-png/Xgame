@@ -74,6 +74,24 @@ export class RadarSweep {
   }
 
   /**
+   * Force-reveal a list of entities immediately (used by Orbital Scan).
+   * Sets fresh blips for all given entities, bypassing the sweep check.
+   * @param {object[]} entities
+   */
+  forceReveal(entities) {
+    for (const e of entities) {
+      if (e.dead) continue;
+      const isEnemy = e.type === 'enemy';
+      const color   = isEnemy ? '#ff4444' : (e._teamColor ?? '#00ccff');
+      const shape   = isEnemy ? 'circle'  : (e._radarShape ?? 'circle');
+      const size    = (e.role === 'boss' || e.role === 'commander' || e.role === 'base') ? 6.0
+                    : e.role === 'kamikaze' ? 4.5
+                    : 3.5;
+      this._blips.set(e, { x: e.x, y: e.y, age: 0, color, shape, size, vet: e._vet ?? 0 });
+    }
+  }
+
+  /**
    * Returns true if the sweep arm moved from prevAngle to currAngle
    * (clockwise) and crossed entityAngle in that arc.
    */

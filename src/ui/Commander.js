@@ -172,7 +172,7 @@ export class Commander {
       z-index: 100;
       white-space: nowrap;
     `;
-    hint.textContent = 'اضغط الشاشة لتحريك الأسراب  ·  الأزرار أدناه: التشكيل';
+    hint.textContent = 'حرّك الفأرة/إصبعك لتوجيه الأسراب  ·  R: قائمة سريعة  ·  الأزرار أدناه: التشكيل';
     document.body.appendChild(hint);
 
     // ── Resources panel (created after game is ready) ──────────────────────
@@ -183,31 +183,41 @@ export class Commander {
   _bindEvents() {
     const canvas = this.canvas.el;
 
-    // Mouse click
-    canvas.addEventListener('click', (e) => {
+    // ── Mouse-follow: steer swarm continuously without clicking ──────────────
+    canvas.addEventListener('mousemove', (e) => {
       if (this.game.aiMode) return;
+      if (this.game._empMode || this.game._towerMode) return;
+      if (this.game._awaitingUpgrade) return;
       const rect = canvas.getBoundingClientRect();
-      this._onTargetClick(e.clientX - rect.left, e.clientY - rect.top);
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      this._targetZoneDisplay = { x, y, alpha: 0.45 };  // subtle indicator
+      this.swarm.setTargetZone(x, y);
     });
 
-    // Touch support — treat touchstart as a target move
+    // Mouse click still used for EMP/tower placement (handled by Game._onCanvasClick)
+    // No additional click handler needed for movement.
+
+    // Touch support — treat touchstart as initial position
     canvas.addEventListener('touchstart', (e) => {
       if (this.game.aiMode) return;
-      e.preventDefault(); // prevent scroll / zoom
+      e.preventDefault();
       const touch = e.changedTouches[0];
       const rect  = canvas.getBoundingClientRect();
       this._onTargetClick(touch.clientX - rect.left, touch.clientY - rect.top);
     }, { passive: false });
 
-    // Touch drag — continuously update target zone while dragging
+    // Touch drag — continuously steer while finger moves
     canvas.addEventListener('touchmove', (e) => {
       if (this.game.aiMode) return;
+      if (this.game._empMode || this.game._towerMode) return;
       e.preventDefault();
       const touch = e.changedTouches[0];
       const rect  = canvas.getBoundingClientRect();
-      // Only move swarm, skip data collection on drag frames
-      this._targetZoneDisplay = { x: touch.clientX - rect.left, y: touch.clientY - rect.top, alpha: 1 };
-      this.swarm.setTargetZone(touch.clientX - rect.left, touch.clientY - rect.top);
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      this._targetZoneDisplay = { x, y, alpha: 0.6 };
+      this.swarm.setTargetZone(x, y);
     }, { passive: false });
   }
 
