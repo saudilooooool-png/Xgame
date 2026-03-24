@@ -17,6 +17,7 @@ import { UpgradeScreen } from '../ui/UpgradeScreen.js';
 import { StartScreen } from '../ui/StartScreen.js';
 import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
+import { getWaveStory } from '../data/StoryLines.js';
 
 export class Game {
   constructor() {
@@ -27,64 +28,71 @@ export class Game {
     this.shake = new ScreenShake();
     this.audio = new Audio();
 
-    // ── 3 fixed city objectives (power ⚡, water 💧, food 🌾) ─────────────────
-    this.objectives = this._buildObjectives();
+    // ── 3 fixed city objectives ───────────────────────────────────────────────
+    this.objectives    = this._buildObjectives();
     this.cityResources = new CityResources();
 
     this.hazards = [];
 
-    this.playerSwarm = new SwarmController(20, this.canvas, 'friendly');
-    this.enemySwarm  = new EnemySwarm(0, this.canvas, this.objectives);
+    this.playerSwarm   = new SwarmController(20, this.canvas, 'friendly');
+    this.enemySwarm    = new EnemySwarm(0, this.canvas, this.objectives);
     this.dataCollector = new DataCollector();
-    this.hud = new HUD(this.canvas);
+    this.hud           = new HUD(this.canvas);
     this.waveAnnouncer = new WaveAnnouncer();
-    this.commander = new Commander(this.canvas, this.playerSwarm, this.dataCollector, this);
+    this.commander     = new Commander(this.canvas, this.playerSwarm, this.dataCollector, this);
 
     this.gameOverScreen = new GameOverScreen(() => this._restart());
     this.gameOverScreen.onExport(() => this.dataCollector.download());
 
     this.upgradeScreen = new UpgradeScreen();
 
-    this.agent = new Agent(this.playerSwarm, this);
+    this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
     this._awaitingUpgrade = false;
 
-    this.score = 0;
-    this.wave = 0;
+    this.score   = 0;
+    this.wave    = 0;
     this.running = true;
-    this._lastTime = 0;
+    this._lastTime  = 0;
     this._waveDelay = 0;
 
-    // Tutorial hints
+    // ── Streak & stats ────────────────────────────────────────────────────────
+    this._streak          = 0;   // consecutive perfect waves (no objective hit)
+    this._maxStreak       = 0;
+    this._perfectWave     = true; // set false when any objective takes damage
+    this._bossWavesCleared = 0;
+
+    // ── Tutorial hints ────────────────────────────────────────────────────────
     this._clickHintTimer = 4;
 
-    // Mission state
-    this._scoreMulti = 1;
+    // ── Mission state ─────────────────────────────────────────────────────────
+    this._scoreMulti    = 1;
     this._missionApproach = null;
     this._defenseProfile  = null;
 
-    // Alert banner state
+    // ── Alert banner ──────────────────────────────────────────────────────────
     this._alertText  = '';
     this._alertTimer = 0;
 
-    new StartScreen().show().then(() => this._runMissionSetup());
-
-    this.waveKills = 0;
-    this.waveLosses = 0;
-    this.totalKills = 0;
+    // ── Combat tracking ───────────────────────────────────────────────────────
+    this.waveKills   = 0;
+    this.waveLosses  = 0;
+    this.totalKills  = 0;
     this.totalLosses = 0;
 
+    // ── Laser effects ─────────────────────────────────────────────────────────
     this._lasers = [];
+
+    new StartScreen().show().then(() => this._runMissionSetup());
   }
 
-  /** Build the 3 city objectives at fixed triangle positions */
   _buildObjectives() {
     const W = this.canvas.width;
     const H = this.canvas.height;
     return [
-      new Objective(W * 0.50, H * 0.16, 'power'),   // ⚡ top-center
-      new Objective(W * 0.18, H * 0.68, 'water'),   // 💧 left
-      new Objective(W * 0.82, H * 0.68, 'food'),    // 🌾 right
+      new Objective(W * 0.50, H * 0.16, 'power'),  // ⚡ top-center
+      new Objective(W * 0.18, H * 0.68, 'water'),  // 💧 left
+      new Objective(W * 0.82, H * 0.68, 'food'),   // 🌾 right
     ];
   }
 
@@ -96,31 +104,33 @@ export class Game {
     this.objectives = this._buildObjectives();
     this.enemySwarm.objectives = this.objectives;
     this.cityResources.reset();
-    this.hazards = [];
-    this.score = 0;
-    this.wave = 0;
-    this.waveKills = 0;
-    this.waveLosses = 0;
-    this.totalKills = 0;
+    this.hazards      = [];
+    this.score        = 0;
+    this.wave         = 0;
+    this._streak           = 0;
+    this._maxStreak        = 0;
+    this._perfectWave      = true;
+    this._bossWavesCleared = 0;
+    this.waveKills   = 0;
+    this.waveLosses  = 0;
+    this.totalKills  = 0;
     this.totalLosses = 0;
-    this._lasers = [];
-    this._alertText = '';
+    this._lasers     = [];
+    this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
     this.particles.particles.length = 0;
-    this.playerSwarm.drones.length = 0;
-    this.enemySwarm.drones.length = 0;
+    this.playerSwarm.drones.length  = 0;
+    this.enemySwarm.drones.length   = 0;
     this.running = true;
     this._runMissionSetup();
   }
 
   _runMissionSetup() {
     new MissionSetupScreen().show().then((setup) => {
-      // Score multiplier from chosen target type (kept for scoring variety)
-      this._scoreMulti = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
+      this._scoreMulti  = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
       this._scoreMulti *= (1 + (setup.defenseProfile.surpriseBonus ?? 0));
 
-      // Build player swarm from loadout
       this.playerSwarm.drones.length = 0;
       for (const [role, count] of Object.entries(setup.loadout)) {
         if (count > 0) this.playerSwarm.reinforce(count, role);
@@ -139,18 +149,19 @@ export class Game {
 
   _nextWave() {
     this.wave++;
-    this._waveDelay = 1.5;
-    this.waveKills = 0;
-    this.waveLosses = 0;
+    this._waveDelay   = 1.5;
+    this.waveKills    = 0;
+    this.waveLosses   = 0;
+    this._perfectWave = true;   // assume perfect until an objective is hit
 
-    // Regenerate hazards (avoid all 3 objectives)
     this.hazards = generateHazards(
       this.wave, this.canvas.width, this.canvas.height,
       this.objectives
     );
 
     const isBossWave = this.wave % 5 === 0;
-    this.waveAnnouncer.announce(this.wave, isBossWave);
+    const story = getWaveStory(this.wave, isBossWave, this.cityResources, this._streak);
+    this.waveAnnouncer.announce(this.wave, isBossWave, story, this._streak);
     this.audio.waveStart();
     this.enemySwarm.spawnWave(this.wave);
     if (this.wave > 1 && this.playerSwarm.drones.length < 20) {
@@ -173,20 +184,17 @@ export class Game {
   }
 
   _update(dt) {
-    if (this._waveDelay > 0) this._waveDelay -= dt;
+    if (this._waveDelay > 0)     this._waveDelay   -= dt;
     if (this._clickHintTimer > 0) this._clickHintTimer -= dt;
-    if (this._alertTimer > 0) this._alertTimer -= dt;
+    if (this._alertTimer > 0)    this._alertTimer   -= dt;
     if (this.aiMode) this.agent.update(dt);
 
     this._lasers = this._lasers.filter(l => (l.ttl -= dt) > 0);
 
-    // Sync resource percentages from live objective HP
     this.cityResources.syncFromObjectives(this.objectives);
-
-    // Apply cascading resource effects (passive depletion + starvation)
     this.cityResources.update(dt, this.playerSwarm, this.objectives);
 
-    // Apply food speed penalty to player drones
+    // Food speed penalty
     const speedMod = this.cityResources.speedModifier();
     if (speedMod < 1.0) {
       for (const d of this.playerSwarm.drones) {
@@ -202,11 +210,33 @@ export class Game {
     this.waveAnnouncer.update(dt);
 
     this._applyHazards(dt);
+    this._applyAutoRecovery(dt);
     this._checkCombat(dt);
     this._checkObjectiveHits();
     this._checkWaveComplete();
     this._checkGameOver();
   }
+
+  // ── Recovery ───────────────────────────────────────────────────────────────
+
+  /** Objectives slowly heal when no enemy is within SAFE_RADIUS. */
+  _applyAutoRecovery(dt) {
+    const SAFE_R2      = 220 * 220;
+    const RECOVERY_RATE = 0.45;   // HP/s
+
+    for (const obj of this.objectives) {
+      if (obj.health <= 0 || obj.health >= obj.maxHealth) continue;
+      const threatened = this.enemySwarm.drones.some(e => {
+        const dx = e.x - obj.x, dy = e.y - obj.y;
+        return dx * dx + dy * dy < SAFE_R2;
+      });
+      if (!threatened) {
+        obj.health = Math.min(obj.maxHealth, obj.health + RECOVERY_RATE * dt);
+      }
+    }
+  }
+
+  // ── Hazards ────────────────────────────────────────────────────────────────
 
   _applyHazards(dt) {
     if (!this.hazards.length) return;
@@ -216,6 +246,8 @@ export class Game {
     this.playerSwarm.drones = this.playerSwarm.drones.filter(d => !d.dead);
     this.enemySwarm.drones  = this.enemySwarm.drones.filter(d => !d.dead);
   }
+
+  // ── Combat ─────────────────────────────────────────────────────────────────
 
   _checkCombat(dt) {
     const friendly = this.playerSwarm.drones;
@@ -254,26 +286,27 @@ export class Game {
   }
 
   _checkObjectiveHits() {
-    const OBJ_R2 = 30 * 30;
+    const OBJ_R2  = 30 * 30;
     const enemies = this.enemySwarm.drones;
 
     for (let j = enemies.length - 1; j >= 0; j--) {
       const e = enemies[j];
       for (const obj of this.objectives) {
-        if (obj.health <= 0) continue; // already destroyed
+        if (obj.health <= 0) continue;
         const dx = e.x - obj.x, dy = e.y - obj.y;
         if (dx * dx + dy * dy < OBJ_R2) {
           this.particles.explode(e.x, e.y, '#ff8800', 8);
           enemies.splice(j, 1);
-          const prev = obj.health;
+          const prevPct = obj.health / obj.maxHealth;
           obj.health = Math.max(0, obj.health - 10);
           this.shake.trigger(10, 0.35);
           this.audio.objectiveHit();
-          // Show alert when objective first drops to 0
-          if (prev > 0 && obj.health <= 0) {
+          this._perfectWave = false;   // wave is no longer perfect
+
+          if (obj.health <= 0 && prevPct > 0) {
             this._showAlert(`💥 ${obj._label} دُمِّرت!`);
-          } else if (obj.health / obj.maxHealth <= 0.30 && prev / obj.maxHealth > 0.30) {
-            this._showAlert(`⚠ ${obj._label} في خطر!`);
+          } else if (obj.health / obj.maxHealth <= 0.30 && prevPct > 0.30) {
+            this._showAlert(`⚠ ${obj._label} في خطر شديد!`);
           }
           break;
         }
@@ -286,20 +319,45 @@ export class Game {
     this._alertTimer = 3.0;
   }
 
+  // ── Wave complete ──────────────────────────────────────────────────────────
+
   _checkWaveComplete() {
     if (this._waveDelay > 0) return;
     if (this._awaitingUpgrade) return;
-    if (this.enemySwarm.drones.length === 0 && !this.enemySwarm.spawning) {
-      this.score += Math.round(100 * this.wave * this._scoreMulti);
-      this._awaitingUpgrade = true;
-      this.upgradeScreen
-        .show(this.wave, { kills: this.waveKills, losses: this.waveLosses, score: this.score })
-        .then((key) => {
-          this._applyUpgrade(key);
-          this._awaitingUpgrade = false;
-          this._nextWave();
-        });
+    if (this.enemySwarm.drones.length > 0 || this.enemySwarm.spawning) return;
+
+    // ── Wave-clear bonus: heal alive objectives ──────────────────────────────
+    const HEAL_PER_WAVE = 8;
+    for (const obj of this.objectives) {
+      if (obj.health > 0) {
+        obj.health = Math.min(obj.maxHealth, obj.health + HEAL_PER_WAVE);
+      }
     }
+
+    // ── Streak tracking ──────────────────────────────────────────────────────
+    if (this._perfectWave) {
+      this._streak++;
+      if (this._streak > this._maxStreak) this._maxStreak = this._streak;
+      if (this._streak >= 2) {
+        this._showAlert(`🔥 سلسلة مثالية ×${this._streak}!`);
+      }
+    } else {
+      this._streak = 0;
+    }
+
+    // Track boss waves cleared
+    if (this.wave % 5 === 0) this._bossWavesCleared++;
+
+    this.score += Math.round(100 * this.wave * this._scoreMulti);
+    this._awaitingUpgrade = true;
+
+    this.upgradeScreen
+      .show(this.wave, { kills: this.waveKills, losses: this.waveLosses, score: this.score })
+      .then((key) => {
+        this._applyUpgrade(key);
+        this._awaitingUpgrade = false;
+        this._nextWave();
+      });
   }
 
   _applyUpgrade(key) {
@@ -318,9 +376,21 @@ export class Game {
           d.maxSpeed = Math.round(d._baseMaxSpeed * this.cityResources.speedModifier());
         }
         break;
+      case 'repair': {
+        // Heal the most damaged alive objective by 30 HP
+        const alive = this.objectives.filter(o => o.health > 0);
+        if (alive.length) {
+          const worst = alive.reduce((w, o) => o.health < w.health ? o : w, alive[0]);
+          worst.health = Math.min(worst.maxHealth, worst.health + 30);
+          this._showAlert(`🔧 تم إصلاح ${worst._label} (+30 HP)`);
+        }
+        break;
+      }
       default: break;
     }
   }
+
+  // ── Threat score ───────────────────────────────────────────────────────────
 
   threatScore() {
     const enemies = this.enemySwarm.drones;
@@ -336,14 +406,26 @@ export class Game {
     return near / enemies.length;
   }
 
+  // ── Game over ──────────────────────────────────────────────────────────────
+
   _checkGameOver() {
-    if (this.cityResources.cityFallen()) {
-      this.running = false;
-      this.audio.gameOver();
-      setTimeout(() => {
-        this.gameOverScreen.show(this.score, this.wave, this.dataCollector.sampleCount);
-      }, 600);
-    }
+    if (!this.cityResources.cityFallen()) return;
+    this.running = false;
+    this.audio.gameOver();
+    setTimeout(() => {
+      this.gameOverScreen.show(this.score, this.wave, this.dataCollector.sampleCount, {
+        objectivesAlive:   this.objectives.filter(o => o.health > 0).length,
+        maxStreak:         this._maxStreak,
+        bossWavesCleared:  this._bossWavesCleared,
+        totalKills:        this.totalKills,
+        totalLosses:       this.totalLosses,
+        resources: {
+          power: this.cityResources.power,
+          water: this.cityResources.water,
+          food:  this.cityResources.food,
+        },
+      });
+    }, 600);
   }
 
   // ── Rendering ──────────────────────────────────────────────────────────────
@@ -381,13 +463,12 @@ export class Game {
     );
   }
 
-  /** Draw faint lines connecting the 3 objectives — city infrastructure */
   _drawCityConnections() {
     const ctx = this.ctx;
     ctx.save();
-    ctx.strokeStyle = 'rgba(100,180,255,0.08)';
+    ctx.strokeStyle = 'rgba(100,180,255,0.07)';
     ctx.lineWidth = 1;
-    ctx.setLineDash([8, 12]);
+    ctx.setLineDash([8, 14]);
     for (let i = 0; i < this.objectives.length; i++) {
       for (let j = i + 1; j < this.objectives.length; j++) {
         const a = this.objectives[i], b = this.objectives[j];
@@ -411,8 +492,8 @@ export class Game {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ff4444';
     ctx.shadowColor = '#ff0000';
-    ctx.shadowBlur = 20;
-    ctx.fillText(this._alertText, this.canvas.width / 2, this.canvas.height / 2 - 40);
+    ctx.shadowBlur = 22;
+    ctx.fillText(this._alertText, this.canvas.width / 2, this.canvas.height / 2 - 44);
     ctx.restore();
   }
 
@@ -449,7 +530,7 @@ export class Game {
   }
 
   _drawGrid() {
-    this.ctx.strokeStyle = 'rgba(30,60,90,0.25)';
+    this.ctx.strokeStyle = 'rgba(30,60,90,0.22)';
     this.ctx.lineWidth = 1;
     const step = 60;
     for (let x = 0; x < this.canvas.width; x += step) {

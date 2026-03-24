@@ -85,16 +85,17 @@ export class UpgradeScreen {
     const upgradeGrid = document.createElement('div');
     upgradeGrid.style.cssText = `
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 10px;
       width: 100%;
-      max-width: 520px;
+      max-width: 360px;
     `;
 
     const upgradeOptions = [
       { key: 'drones',    icon: '⬡⬡⬡', label: '+5 STANDARD', desc: 'تعزيز السرب\nبـ٥ وحدات متوازنة', color: '#00d4ff' },
       { key: 'firepower', icon: '⚡',    label: '+30% FIREPOWER', desc: 'رفع ضرر\nجميع الطائرات ٣٠٪', color: '#ffcc00' },
       { key: 'speed',     icon: '▶▶',   label: '+20% SPEED',    desc: 'رفع سرعة\nجميع الطائرات ٢٠٪', color: '#00ff88' },
+      { key: 'repair',    icon: '🔧',   label: 'EMERGENCY REPAIR', desc: '+٣٠ HP للمورد\nالأكثر تضرراً', color: '#ff8844' },
     ];
     for (const opt of upgradeOptions) upgradeGrid.appendChild(this._card(opt));
     overlay.appendChild(upgradeGrid);
