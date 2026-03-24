@@ -178,6 +178,19 @@ export class SwarmController {
         }
       }
 
+      // ── HUD exclusion zones (soft repulsion) ──────────────────────────
+      // Top-left panel: roughly 220×320px
+      const HX = 220, HY = 320;
+      if (drone.x < HX && drone.y < HY) {
+        force.fx += ((HX - drone.x) / HX) * 0.6;
+        force.fy += ((HY - drone.y) / HY) * 0.6;
+      }
+      // Top-right panel: roughly 200px wide × 60px tall
+      if (drone.x > this.canvas.width - 200 && drone.y < 60) {
+        force.fx -= ((drone.x - (this.canvas.width - 200)) / 200) * 0.4;
+        force.fy += 0.2;
+      }
+
       drone.update(dt, force);
       this._clampToBounds(drone);
     });

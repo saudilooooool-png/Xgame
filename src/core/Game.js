@@ -70,10 +70,14 @@ export class Game {
     // ── Player identity (set by DroneLab) ─────────────────────────────────────
     this._playerIdentity = null;
 
-    // ── Group toggle (Tab) ────────────────────────────────────────────────────
+    // ── Deployment phase (before enemies spawn each wave) ─────────────────────
+    this._deploymentPhase = 0;   // countdown in seconds; 0 = no deployment phase
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab')                    { e.preventDefault(); this._toggleGroup(); }
-      if (e.key === 's' || e.key === 'S')    this._splitOrMergeGroups();
+      if (e.key === 'Tab')                       { e.preventDefault(); this._toggleGroup(); }
+      if (e.key === 's' || e.key === 'S')       this._splitOrMergeGroups();
+      if (e.code === 'Space' || e.key === 'Enter') this._skipDeployment();
     });
 
     // ── Tutorial hints ────────────────────────────────────────────────────────
@@ -191,7 +195,7 @@ export class Game {
     this._waveDelay   = 1.5;
     this.waveKills    = 0;
     this.waveLosses   = 0;
-    this._perfectWave = true;   // assume perfect until an objective is hit
+    this._perfectWave = true;
 
     this.hazards = generateHazards(
       this.wave, this.canvas.width, this.canvas.height,
@@ -202,10 +206,27 @@ export class Game {
     const story = getWaveStory(this.wave, isBossWave, this.cityResources, this._streak);
     this.waveAnnouncer.announce(this.wave, isBossWave, story, this._streak);
     this.audio.waveStart();
-    this.enemySwarm.spawnWave(this.wave);
+
+    // Reinforce player before enemies spawn
     if (this.wave > 1 && this.playerSwarm.drones.length < 20) {
       this.playerSwarm.reinforce(Math.min(5, 20 - this.playerSwarm.drones.length), 'standard');
     }
+
+    // ── Deployment phase: give player 12s to position before enemies spawn ──
+    if (this.wave > 1) {
+      this._deploymentPhase = 12;
+      this._showAlert('📍 وزّع قواتك — Space للبدء');
+    } else {
+      // Wave 1: no deployment pause, just start
+      this.enemySwarm.spawnWave(this.wave);
+    }
+  }
+
+  _skipDeployment() {
+    if (this._deploymentPhase <= 0) return;
+    this._deploymentPhase = 0;
+    this.enemySwarm.spawnWave(this.wave);
+    this._showAlert('⚔ الهجوم!');
   }
 
   _loop(timestamp) {
@@ -223,10 +244,26 @@ export class Game {
   }
 
   _update(dt) {
-    if (this._waveDelay > 0)     this._waveDelay   -= dt;
-    if (this._clickHintTimer > 0) this._clickHintTimer -= dt;
-    if (this._alertTimer > 0)    this._alertTimer   -= dt;
+    if (this._waveDelay > 0)      this._waveDelay      -= dt;
+    if (this._clickHintTimer > 0) this._clickHintTimer  -= dt;
+    if (this._alertTimer > 0)     this._alertTimer      -= dt;
     if (this.aiMode) this.agent.update(dt);
+
+    // ── Deployment phase: let player position forces; enemies not yet spawned ──
+    if (this._deploymentPhase > 0) {
+      this._deploymentPhase -= dt;
+      this.playerSwarm.update(dt, []); // move drones with no enemies
+      this.particles.update(dt);
+      this.waveAnnouncer.update(dt);
+      const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+      this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
+      if (this._deploymentPhase <= 0) {
+        this._deploymentPhase = 0;
+        this.enemySwarm.spawnWave(this.wave);
+        this._showAlert('⚔ الهجوم!');
+      }
+      return;  // skip combat, enemy AI, hazards during deployment
+    }
 
     this._lasers = this._lasers.filter(l => (l.ttl -= dt) > 0);
 
@@ -404,6 +441,7 @@ export class Game {
 
   _checkWaveComplete() {
     if (this._waveDelay > 0) return;
+    if (this._deploymentPhase > 0) return;
     if (this._awaitingUpgrade) return;
     if (this.enemySwarm.drones.length > 0 || this.enemySwarm.spawning) return;
 
@@ -547,6 +585,7 @@ export class Game {
     this.waveAnnouncer.draw(ctx, W, H);
     this._drawAlertBanner();
     this._drawClickHint();
+    if (this._deploymentPhase > 0) this._drawDeploymentOverlay(ctx, W, H);
     const vetCount = this.playerSwarm.drones.filter(d => !d.dead && d._vet > 0).length;
     this.hud.draw(
       this.score, this.wave,
@@ -612,6 +651,37 @@ export class Game {
       ctx.lineTo(l.x2, l.y2);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  _drawDeploymentOverlay(ctx, W, H) {
+    const t    = this._deploymentPhase;
+    const FULL = 12;
+    const pct  = t / FULL;
+
+    ctx.save();
+
+    // ── Progress bar at top of screen ──────────────────────────────────
+    ctx.fillStyle = 'rgba(0,255,100,0.08)';
+    ctx.fillRect(0, 0, W, 3);
+    ctx.fillStyle = t < 4 ? '#ff6600' : '#00ff88';
+    ctx.fillRect(0, 0, W * pct, 3);
+
+    // ── Central countdown banner ────────────────────────────────────────
+    const secs = Math.ceil(t);
+    ctx.textAlign  = 'center';
+    ctx.font       = 'bold 17px monospace';
+    ctx.fillStyle  = t < 4 ? 'rgba(255,100,0,0.9)' : 'rgba(0,255,120,0.85)';
+    ctx.shadowColor = t < 4 ? '#ff6600' : '#00ff88';
+    ctx.shadowBlur  = 14;
+    ctx.fillText(`📍 وزّع قواتك — ${secs}s`, W / 2, H - 110);
+
+    ctx.font      = '11px monospace';
+    ctx.fillStyle = 'rgba(0,200,80,0.45)';
+    ctx.shadowBlur = 0;
+    ctx.fillText('انقر لتحريك قواتك  ·  Tab=تبديل A/B  ·  S=تقسيم  ·  Space=ابدأ الآن', W / 2, H - 90);
+
+    ctx.textAlign = 'left';
     ctx.restore();
   }
 
