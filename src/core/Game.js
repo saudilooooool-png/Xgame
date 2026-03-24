@@ -108,6 +108,12 @@ export class Game {
     // ── Laser effects ─────────────────────────────────────────────────────────
     this._lasers = [];
 
+    // ── Phase-1 visual FX ─────────────────────────────────────────────────────
+    this._scorePopups = [];   // { x, y, text, ttl, maxTtl }
+    this._killFeed    = [];   // { text, ttl, maxTtl }
+    this._hitFlash    = 0;    // 0-1, decays per frame
+    this._vignetteHP  = 1;    // 0-1 smoothed min-objective ratio
+
     new StartScreen().show().then(() => this._runMissionSetup());
   }
 
@@ -141,6 +147,10 @@ export class Game {
     this.totalKills  = 0;
     this.totalLosses = 0;
     this._lasers     = [];
+    this._scorePopups = [];
+    this._killFeed    = [];
+    this._hitFlash    = 0;
+    this._vignetteHP  = 1;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -332,6 +342,7 @@ export class Game {
     this._checkObjectiveHits();
     this._checkWaveComplete();
     this._checkGameOver();
+    this._updateFX(dt);
   }
 
   // ── Side missions ─────────────────────────────────────────────────────────
@@ -455,10 +466,17 @@ export class Game {
         this.particles.explode(target.x, target.y, color, role === 'commander' ? 18 : 10);
         this.audio.enemyDestroyed();
         const scoreBonus = role === 'commander' ? 50 : role === 'kamikaze' ? 20 : 10;
-        this.score += Math.round(scoreBonus * this._scoreMulti);
+        const gained = Math.round(scoreBonus * this._scoreMulti);
+        this.score += gained;
         if (role === 'commander') this._showAlert('⭐ القائد أُسقط! الأعداء أضعف!');
         this.waveKills++;
         this.totalKills++;
+        // Score popup
+        this._scorePopups.push({ x: target.x, y: target.y, text: `+${gained}`, ttl: 1.2, maxTtl: 1.2 });
+        // Kill feed
+        const feedLabel = role === 'commander' ? '★ COMMANDER' : role === 'boss' ? '★ BOSS' : role.toUpperCase();
+        this._killFeed.unshift({ text: feedLabel, ttl: 3.5, maxTtl: 3.5 });
+        if (this._killFeed.length > 5) this._killFeed.length = 5;
       }
     }
 
@@ -475,6 +493,7 @@ export class Game {
         this.particles.explode(target.x, target.y, '#00d4ff', 6);
         this.waveLosses++;
         this.totalLosses++;
+        this._hitFlash = Math.min(1, this._hitFlash + 0.45);
       }
     }
 
@@ -635,6 +654,92 @@ export class Game {
     }, 600);
   }
 
+  // ── Phase-1 FX update ──────────────────────────────────────────────────────
+
+  _updateFX(dt) {
+    // Score popups: rise and fade
+    for (const p of this._scorePopups) p.ttl -= dt;
+    this._scorePopups = this._scorePopups.filter(p => p.ttl > 0);
+
+    // Kill feed: fade entries
+    for (const k of this._killFeed) k.ttl -= dt;
+    this._killFeed = this._killFeed.filter(k => k.ttl > 0);
+
+    // Hit flash: decay quickly
+    if (this._hitFlash > 0) this._hitFlash = Math.max(0, this._hitFlash - dt * 3);
+
+    // Vignette: smooth toward min-objective health ratio
+    const minHP = this.objectives.reduce((m, o) => Math.min(m, o.health / o.maxHealth), 1);
+    this._vignetteHP += (minHP - this._vignetteHP) * Math.min(1, dt * 2);
+  }
+
+  // ── Phase-1 FX draw ────────────────────────────────────────────────────────
+
+  _drawFX(W, H) {
+    const ctx = this.ctx;
+
+    // ── Vignette ──────────────────────────────────────────────────────────────
+    // Intensity: 0.10 at full health → 0.60 at 0 HP, boosted by hit flash
+    const vigBase = 0.10 + (1 - this._vignetteHP) * 0.50;
+    const vigIntensity = Math.min(0.85, vigBase + this._hitFlash * 0.35);
+    const grad = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.80);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(${this._hitFlash > 0.1 ? '120,0,0' : '0,0,0'},${vigIntensity.toFixed(2)})`);
+    ctx.save();
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // ── Hit flash ─────────────────────────────────────────────────────────────
+    if (this._hitFlash > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = this._hitFlash * 0.28;
+      ctx.fillStyle = '#ff0000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ── Score popups ──────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    for (const p of this._scorePopups) {
+      const frac = p.ttl / p.maxTtl;                    // 1→0
+      const alpha = frac < 0.3 ? frac / 0.3 : 1;        // fade in fast, then...
+      const fadeAlpha = frac > 0.3 ? 1 : frac / 0.3;
+      const rise = (1 - frac) * 40;                      // floats up 40px
+      ctx.globalAlpha = Math.min(alpha, frac) * 0.95;
+      ctx.fillStyle = '#ffee55';
+      ctx.shadowColor = '#ff8800';
+      ctx.shadowBlur = 8;
+      ctx.fillText(p.text, p.x, p.y - rise);
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
+
+    // ── Kill feed ─────────────────────────────────────────────────────────────
+    ctx.save();
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    const feedX = W - 16;
+    let feedY = 72;
+    for (const k of this._killFeed) {
+      const alpha = Math.min(1, k.ttl / 0.6);
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.fillStyle = k.text.startsWith('★') ? '#ffcc00' : '#ff5566';
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 4;
+      ctx.fillText(`✕ ${k.text}`, feedX, feedY);
+      feedY += 16;
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
   // ── Rendering ──────────────────────────────────────────────────────────────
 
   _draw() {
@@ -666,7 +771,10 @@ export class Game {
     // 3. Radar sweep overlay (fixed — not shaken)
     this.radarSweep.draw(ctx, W / 2, H / 2, W, H);
 
-    // 4. UI
+    // 4. FX: vignette + hit flash + score popups + kill feed
+    this._drawFX(W, H);
+
+    // 5. UI
     this.waveAnnouncer.draw(ctx, W, H);
     this._drawAlertBanner();
     this._drawClickHint();
