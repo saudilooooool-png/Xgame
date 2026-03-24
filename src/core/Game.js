@@ -118,6 +118,13 @@ export class Game {
     this._hitFlash    = 0;    // 0-1, decays per frame
     this._vignetteHP  = 1;    // 0-1 smoothed min-objective ratio
 
+    // ── Phase-4 polish ────────────────────────────────────────────────────────
+    this._comboCount = 0;    // rapid-kill streak
+    this._comboTimer = 0;    // countdown to reset combo (2.5s per kill)
+    this._slowMo     = 0;    // 0-1; 1=full slow, decays in real time
+    this._timeScale  = 1;    // physics dt multiplier (updated in _loop)
+    this._waveWipe   = 0;    // 0-1; plays before upgrade screen
+
     // ── Phase-2 trap system ───────────────────────────────────────────────────
     this._empTraps   = [];    // active EmpTrap instances
     this._empCharges = 3;     // traps available this wave
@@ -179,6 +186,11 @@ export class Game {
     this._empMode    = false;
     this._towers     = [];
     this._towerMode  = false;
+    this._comboCount = 0;
+    this._comboTimer = 0;
+    this._slowMo     = 0;
+    this._timeScale  = 1;
+    this._waveWipe   = 0;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -364,8 +376,18 @@ export class Game {
 
   _loop(timestamp) {
     if (!this.running) return;
-    const dt = Math.min((timestamp - this._lastTime) / 1000, 0.05);
+    const rawDt = Math.min((timestamp - this._lastTime) / 1000, 0.05);
     this._lastTime = timestamp;
+
+    // Slow-mo: always decay with real time so duration is predictable
+    if (this._slowMo > 0) {
+      this._slowMo   = Math.max(0, this._slowMo - rawDt / 1.8);
+      this._timeScale = 0.30 + (1 - this._slowMo) * 0.70;
+    } else {
+      this._timeScale = 1;
+    }
+
+    const dt = rawDt * this._timeScale;
     this._update(dt);
     this._draw();
     requestAnimationFrame((t) => this._loop(t));
@@ -437,23 +459,7 @@ export class Game {
         this._lasers.push({ x1: shot.x1, y1: shot.y1, x2: shot.x2, y2: shot.y2,
                             color: '#ffcc00', ttl: 0.06 });
         if (shot.killed) {
-          const role = shot.target.role;
-          const color = role === 'commander' ? '#ffaa00'
-                      : role === 'kamikaze'  ? '#ff4400'
-                      : '#ff3c3c';
-          this.particles.explode(shot.target.x, shot.target.y, color,
-                                 role === 'commander' ? 18 : 10);
-          this.audio.enemyDestroyed();
-          const scoreBonus = role === 'commander' ? 50 : role === 'kamikaze' ? 20 : 10;
-          const gained = Math.round(scoreBonus * this._scoreMulti);
-          this.score += gained;
-          this.waveKills++;
-          this.totalKills++;
-          this._scorePopups.push({ x: shot.target.x, y: shot.target.y,
-                                   text: `+${gained}`, ttl: 1.2, maxTtl: 1.2 });
-          const feedLabel = role === 'commander' ? '★ COMMANDER' : role.toUpperCase();
-          this._killFeed.unshift({ text: `GATLING ${feedLabel}`, ttl: 3.5, maxTtl: 3.5 });
-          if (this._killFeed.length > 5) this._killFeed.length = 5;
+          this._onEnemyKilled(shot.target.role, shot.target.x, shot.target.y);
         }
       }
     }
@@ -596,6 +602,66 @@ export class Game {
     this.enemySwarm.drones  = this.enemySwarm.drones.filter(d => !d.dead);
   }
 
+  // ── Kill pipeline (combo + score + FX) ────────────────────────────────────
+
+  /**
+   * Called for every enemy death regardless of source (drone / tower).
+   * @param {string} role   enemy role string
+   * @param {number} x
+   * @param {number} y
+   */
+  _onEnemyKilled(role, x, y) {
+    // ── Combo ────────────────────────────────────────────────────────────────
+    this._comboCount++;
+    this._comboTimer = 2.5;   // window to extend combo
+
+    // Tier thresholds
+    const comboMult = this._comboCount >= 8 ? 2.5
+                    : this._comboCount >= 5 ? 2.0
+                    : this._comboCount >= 3 ? 1.5
+                    : 1.0;
+
+    // Trigger slow-mo at combo 5 (only once per combo chain)
+    if (this._comboCount === 5) this._slowMo = 1;
+
+    // ── Score ─────────────────────────────────────────────────────────────────
+    const baseBonus = role === 'boss' || role === 'commander' ? 50
+                    : role === 'kamikaze' ? 20
+                    : 10;
+    const gained = Math.round(baseBonus * this._scoreMulti * comboMult);
+    this.score += gained;
+    this.waveKills++;
+    this.totalKills++;
+
+    // ── FX ───────────────────────────────────────────────────────────────────
+    const color = role === 'commander' ? '#ffaa00'
+                : role === 'kamikaze'  ? '#ff4400'
+                : '#ff3c3c';
+    this.particles.explode(x, y, color, role === 'commander' ? 18 : 10);
+    this.audio.enemyDestroyed();
+
+    // Score popup — show multiplier when combo active
+    const popupText = comboMult > 1
+      ? `+${gained} ×${comboMult.toFixed(1)}`
+      : `+${gained}`;
+    const popupColor = comboMult >= 2.5 ? '#ff6600'
+                     : comboMult >= 2.0 ? '#ff9900'
+                     : comboMult >= 1.5 ? '#ffcc00'
+                     : '#ffee55';
+    this._scorePopups.push({ x, y, text: popupText, ttl: 1.4, maxTtl: 1.4,
+                             color: popupColor });
+
+    // Kill feed
+    const feedLabel = role === 'commander' ? '★ COMMANDER'
+                    : role === 'boss'      ? '★ BOSS'
+                    : role.toUpperCase();
+    this._killFeed.unshift({ text: feedLabel, ttl: 3.5, maxTtl: 3.5 });
+    if (this._killFeed.length > 5) this._killFeed.length = 5;
+
+    // Special alerts
+    if (role === 'commander') this._showAlert('⭐ القائد أُسقط! الأعداء أضعف!');
+  }
+
   // ── Combat ─────────────────────────────────────────────────────────────────
 
   _checkCombat(dt) {
@@ -610,24 +676,7 @@ export class Game {
                           color: '#00d4ff', ttl: 0.08 });
       if (target.takeDamage(p.fireDamage)) {
         if (p._kills !== undefined) p._kills++;   // vet kill tracking
-        const role = target.role;
-        const color = role === 'commander' ? '#ffaa00'
-                    : role === 'kamikaze'  ? '#ff4400'
-                    : '#ff3c3c';
-        this.particles.explode(target.x, target.y, color, role === 'commander' ? 18 : 10);
-        this.audio.enemyDestroyed();
-        const scoreBonus = role === 'commander' ? 50 : role === 'kamikaze' ? 20 : 10;
-        const gained = Math.round(scoreBonus * this._scoreMulti);
-        this.score += gained;
-        if (role === 'commander') this._showAlert('⭐ القائد أُسقط! الأعداء أضعف!');
-        this.waveKills++;
-        this.totalKills++;
-        // Score popup
-        this._scorePopups.push({ x: target.x, y: target.y, text: `+${gained}`, ttl: 1.2, maxTtl: 1.2 });
-        // Kill feed
-        const feedLabel = role === 'commander' ? '★ COMMANDER' : role === 'boss' ? '★ BOSS' : role.toUpperCase();
-        this._killFeed.unshift({ text: feedLabel, ttl: 3.5, maxTtl: 3.5 });
-        if (this._killFeed.length > 5) this._killFeed.length = 5;
+        this._onEnemyKilled(target.role, target.x, target.y);
       }
     }
 
@@ -728,14 +777,20 @@ export class Game {
 
     this.score += Math.round(100 * this.wave * this._scoreMulti);
     this._awaitingUpgrade = true;
+    this._comboCount = 0;   // reset combo on wave clear
 
-    this.upgradeScreen
-      .show(this.wave, { kills: this.waveKills, losses: this.waveLosses, score: this.score })
-      .then((key) => {
-        this._applyUpgrade(key);
-        this._awaitingUpgrade = false;
-        this._nextWave();
-      });
+    // Wave Wipe: play 750 ms animation then open upgrade screen
+    this._waveWipe = 1;
+    const waveSnap = { kills: this.waveKills, losses: this.waveLosses, score: this.score };
+    setTimeout(() => {
+      this.upgradeScreen
+        .show(this.wave, waveSnap)
+        .then((key) => {
+          this._applyUpgrade(key);
+          this._awaitingUpgrade = false;
+          this._nextWave();
+        });
+    }, 750);
   }
 
   _applyUpgrade(key) {
@@ -817,12 +872,22 @@ export class Game {
     for (const k of this._killFeed) k.ttl -= dt;
     this._killFeed = this._killFeed.filter(k => k.ttl > 0);
 
-    // Hit flash: decay quickly
+    // Hit flash: decay quickly (uses slowed dt — more dramatic in slow-mo)
     if (this._hitFlash > 0) this._hitFlash = Math.max(0, this._hitFlash - dt * 3);
 
     // Vignette: smooth toward min-objective health ratio
     const minHP = this.objectives.reduce((m, o) => Math.min(m, o.health / o.maxHealth), 1);
     this._vignetteHP += (minHP - this._vignetteHP) * Math.min(1, dt * 2);
+
+    // Combo timer: reset streak if window expires (uses slowed dt intentionally —
+    // slow-mo gives a brief grace period to chain more kills)
+    if (this._comboTimer > 0) {
+      this._comboTimer -= dt;
+      if (this._comboTimer <= 0) this._comboCount = 0;
+    }
+
+    // Wave wipe: decay in slowed time (looks good as part of the effect)
+    if (this._waveWipe > 0) this._waveWipe = Math.max(0, this._waveWipe - dt / 0.75);
   }
 
   // ── Phase-1 FX draw ────────────────────────────────────────────────────────
@@ -851,25 +916,128 @@ export class Game {
       ctx.restore();
     }
 
+    // ── Slow-mo cyan tint ─────────────────────────────────────────────────────
+    if (this._slowMo > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = this._slowMo * 0.12;
+      ctx.fillStyle = '#00ddff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // ── Wave wipe (scan line sweeping top→bottom) ──────────────────────────────
+    if (this._waveWipe > 0) {
+      const prog  = 1 - this._waveWipe;           // 0 → 1 as animation advances
+      const scanY = H * Math.pow(prog, 0.8);       // slightly eased
+      ctx.save();
+
+      // Tailing glow above scan line
+      const trailH = 60 + 40 * this._waveWipe;
+      const trailGrad = ctx.createLinearGradient(0, scanY - trailH, 0, scanY + 8);
+      trailGrad.addColorStop(0, 'rgba(0,255,180,0)');
+      trailGrad.addColorStop(0.7, `rgba(0,255,180,${this._waveWipe * 0.18})`);
+      trailGrad.addColorStop(1,   `rgba(0,255,180,${this._waveWipe * 0.40})`);
+      ctx.fillStyle = trailGrad;
+      ctx.fillRect(0, scanY - trailH, W, trailH + 8);
+
+      // Sharp leading edge
+      ctx.strokeStyle = `rgba(80,255,200,${this._waveWipe * 0.95})`;
+      ctx.lineWidth   = 2.5;
+      ctx.shadowColor = '#00ffcc';
+      ctx.shadowBlur  = 24 * this._waveWipe;
+      ctx.beginPath();
+      ctx.moveTo(0, scanY); ctx.lineTo(W, scanY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Full-screen flash at the very start (prog < 0.15)
+      if (prog < 0.15) {
+        ctx.globalAlpha = (0.15 - prog) / 0.15 * 0.55;
+        ctx.fillStyle = '#00ffcc';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // "WAVE CLEARED" text when scan passes center
+      if (prog > 0.35 && prog < 0.85) {
+        const tAlpha = Math.min((prog - 0.35) / 0.15, (0.85 - prog) / 0.15);
+        ctx.globalAlpha = tAlpha * this._waveWipe;
+        ctx.font = 'bold 30px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#00ffcc';
+        ctx.shadowColor = '#00ffcc';
+        ctx.shadowBlur = 20;
+        ctx.fillText('WAVE CLEARED', W / 2, H / 2 - 12);
+        // Streak sub-label
+        if (this._streak >= 2) {
+          ctx.font = 'bold 14px monospace';
+          ctx.fillStyle = '#ffdd44';
+          ctx.shadowColor = '#ffcc00';
+          ctx.fillText(`🔥 سلسلة مثالية ×${this._streak}`, W / 2, H / 2 + 14);
+        }
+        ctx.shadowBlur = 0;
+      }
+      ctx.restore();
+    }
+
     // ── Score popups ──────────────────────────────────────────────────────────
     ctx.save();
-    ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'center';
     for (const p of this._scorePopups) {
-      const frac = p.ttl / p.maxTtl;                    // 1→0
-      const alpha = frac < 0.3 ? frac / 0.3 : 1;        // fade in fast, then...
-      const fadeAlpha = frac > 0.3 ? 1 : frac / 0.3;
-      const rise = (1 - frac) * 40;                      // floats up 40px
-      ctx.globalAlpha = Math.min(alpha, frac) * 0.95;
-      ctx.fillStyle = '#ffee55';
-      ctx.shadowColor = '#ff8800';
-      ctx.shadowBlur = 8;
+      const frac  = p.ttl / p.maxTtl;           // 1 → 0
+      const alpha = Math.min(frac * 3, 1) * frac;  // quick fade-in, then fade-out
+      const rise  = (1 - frac) * 44;
+      const isCombo = p.text.includes('×');
+      ctx.font        = isCombo ? 'bold 16px monospace' : 'bold 14px monospace';
+      ctx.globalAlpha = alpha * 0.95;
+      ctx.fillStyle   = p.color ?? '#ffee55';
+      ctx.shadowColor = p.color ?? '#ff8800';
+      ctx.shadowBlur  = isCombo ? 12 : 8;
       ctx.fillText(p.text, p.x, p.y - rise);
     }
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';
     ctx.restore();
+
+    // ── Combo badge ───────────────────────────────────────────────────────────
+    if (this._comboCount >= 3) {
+      const timerFrac = Math.max(0, this._comboTimer / 2.5);  // 1 → 0
+      const comboMult = this._comboCount >= 8 ? 2.5
+                      : this._comboCount >= 5 ? 2.0
+                      : 1.5;
+      const badgeColor = this._comboCount >= 8 ? '#ff5500'
+                       : this._comboCount >= 5 ? '#ff9900'
+                       : '#ffcc00';
+      ctx.save();
+      ctx.textAlign = 'center';
+      // Badge background pill
+      const bW = 140, bH = 36, bX = W / 2, bY = H - 62;
+      ctx.globalAlpha = 0.82;
+      ctx.fillStyle   = 'rgba(0,0,0,0.55)';
+      ctx.beginPath();
+      ctx.roundRect(bX - bW / 2, bY - bH / 2, bW, bH, 8);
+      ctx.fill();
+      // Combo text
+      ctx.globalAlpha = 1;
+      ctx.font        = `bold 18px monospace`;
+      ctx.fillStyle   = badgeColor;
+      ctx.shadowColor = badgeColor;
+      ctx.shadowBlur  = 10 + this._comboCount * 0.8;
+      ctx.fillText(`COMBO ×${this._comboCount}  ×${comboMult.toFixed(1)}`, bX, bY + 6);
+      ctx.shadowBlur = 0;
+      // Timer bar below badge
+      const barW = bW - 16;
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillRect(bX - barW / 2, bY + bH / 2 + 2, barW, 3);
+      ctx.fillStyle   = badgeColor;
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(bX - barW / 2, bY + bH / 2 + 2, barW * timerFrac, 3);
+      ctx.globalAlpha = 1;
+      ctx.textAlign   = 'left';
+      ctx.restore();
+    }
 
     // ── Kill feed ─────────────────────────────────────────────────────────────
     ctx.save();
