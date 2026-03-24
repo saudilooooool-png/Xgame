@@ -18,6 +18,18 @@ export class Drone {
     this.fireRate   = type === 'friendly' ? 0.65 : 1.0; // seconds between shots
     this._fireTimer = Math.random() * this.fireRate;     // stagger initial shots
     this.dead = false;
+
+    // ── Customization (friendly only) ───────────────────────────────────
+    this._teamColor  = '#00d4ff';   // set by SwarmController.setIdentity()
+    this._teamShadow = '#0088bb';
+    this._radarShape = 'circle';    // radar blip shape
+    this._group      = 'A';         // 'A' or 'B' swarm group
+
+    // ── Veteran system ───────────────────────────────────────────────────
+    this._kills      = 0;   // kills this drone has made
+    this._wavesAlive = 0;   // waves survived
+    this._vet        = 0;   // tier: 0=rookie, 1=veteran, 2=ace
+    this._callsign   = null; // assigned on first promotion
   }
 
   takeDamage(dmg) {

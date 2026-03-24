@@ -19,6 +19,8 @@ import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
 import { getWaveStory } from '../data/StoryLines.js';
 import { RadarSweep } from './RadarSweep.js';
+import { DroneLab } from '../ui/DroneLab.js';
+import { nextVetCallsign } from '../data/PlayerIdentity.js';
 
 export class Game {
   constructor() {
@@ -60,10 +62,19 @@ export class Game {
     this._waveDelay = 0;
 
     // ── Streak & stats ────────────────────────────────────────────────────────
-    this._streak          = 0;   // consecutive perfect waves (no objective hit)
+    this._streak          = 0;
     this._maxStreak       = 0;
-    this._perfectWave     = true; // set false when any objective takes damage
+    this._perfectWave     = true;
     this._bossWavesCleared = 0;
+
+    // ── Player identity (set by DroneLab) ─────────────────────────────────────
+    this._playerIdentity = null;
+
+    // ── Group toggle (Tab) ────────────────────────────────────────────────────
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab')                    { e.preventDefault(); this._toggleGroup(); }
+      if (e.key === 's' || e.key === 'S')    this._splitOrMergeGroups();
+    });
 
     // ── Tutorial hints ────────────────────────────────────────────────────────
     this._clickHintTimer = 4;
@@ -130,24 +141,49 @@ export class Game {
   }
 
   _runMissionSetup() {
-    new MissionSetupScreen().show().then((setup) => {
-      this._scoreMulti  = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
-      this._scoreMulti *= (1 + (setup.defenseProfile.surpriseBonus ?? 0));
+    new DroneLab(this._playerIdentity).show().then((identity) => {
+      this._playerIdentity = identity;
+      this.playerSwarm.setIdentity(identity);
 
-      this.playerSwarm.drones.length = 0;
-      for (const [role, count] of Object.entries(setup.loadout)) {
-        if (count > 0) this.playerSwarm.reinforce(count, role);
-      }
-      if (this.playerSwarm.drones.length === 0) {
-        this.playerSwarm.reinforce(10, 'standard');
-      }
+      new MissionSetupScreen().show().then((setup) => {
+        this._scoreMulti  = TARGET_TYPES[setup.targetId]?.scoreMulti ?? 1;
+        this._scoreMulti *= (1 + (setup.defenseProfile.surpriseBonus ?? 0));
 
-      this.enemySwarm.defenseProfile = setup.defenseProfile;
-      this._missionApproach = setup.approach;
-      this._defenseProfile  = setup.defenseProfile;
-      this._clickHintTimer  = 4;
-      this._nextWave();
+        this.playerSwarm.drones.length = 0;
+        for (const [role, count] of Object.entries(setup.loadout)) {
+          if (count > 0) this.playerSwarm.reinforce(count, role);
+        }
+        if (this.playerSwarm.drones.length === 0) {
+          this.playerSwarm.reinforce(10, 'standard');
+        }
+
+        this.enemySwarm.defenseProfile = setup.defenseProfile;
+        this._missionApproach = setup.approach;
+        this._defenseProfile  = setup.defenseProfile;
+        this._clickHintTimer  = 4;
+        this._nextWave();
+      });
     });
+  }
+
+  // ── Group A/B controls ────────────────────────────────────────────────────
+
+  _toggleGroup() {
+    if (!this.running) return;
+    this.playerSwarm.activeGroup = this.playerSwarm.activeGroup === 'A' ? 'B' : 'A';
+    this._showAlert(`المجموعة ${this.playerSwarm.activeGroup} نشطة`);
+  }
+
+  _splitOrMergeGroups() {
+    if (!this.running) return;
+    const allInA = this.playerSwarm.drones.every(d => d._group === 'A');
+    if (allInA) {
+      this.playerSwarm.splitGroups();
+      this._showAlert('السرب مقسّم: A + B  (Tab للتبديل)');
+    } else {
+      this.playerSwarm.mergeGroups();
+      this._showAlert('السرب مدمج في المجموعة A');
+    }
   }
 
   _nextWave() {
@@ -234,6 +270,30 @@ export class Game {
     this._checkGameOver();
   }
 
+  // ── Veteran system ────────────────────────────────────────────────────────
+
+  _checkVetPromotions() {
+    for (const d of this.playerSwarm.drones) {
+      if (d.dead || d._vet >= 2) continue;
+      const prev = d._vet;
+
+      if (d._vet < 1 && d._kills >= 3 && d._wavesAlive >= 2) {
+        d._vet = 1;
+        d._callsign ??= nextVetCallsign();
+        d.fireDamage = Math.round(d.fireDamage * 1.15);
+        d.maxSpeed   = Math.round(d.maxSpeed   * 1.10);
+        this._showAlert(`🎖 ${d._callsign} ترقّى لمخضرم!`);
+      } else if (d._vet < 2 && d._kills >= 8 && d._wavesAlive >= 4) {
+        d._vet = 2;
+        d._callsign ??= nextVetCallsign();
+        d.fireDamage = Math.round(d.fireDamage * 1.15);
+        d.maxSpeed   = Math.round(d.maxSpeed   * 1.10);
+        d.hp = Math.min(d.maxHp, d.hp + 30);  // battle-hardened HP restore
+        this._showAlert(`⭐ ${d._callsign} ترقّى لـ ACE!`);
+      }
+    }
+  }
+
   // ── Recovery ───────────────────────────────────────────────────────────────
 
   /** Objectives slowly heal when no enemy is within SAFE_RADIUS. */
@@ -277,6 +337,7 @@ export class Game {
       this._lasers.push({ x1: p.x, y1: p.y, x2: target.x, y2: target.y,
                           color: '#00d4ff', ttl: 0.08 });
       if (target.takeDamage(p.fireDamage)) {
+        if (p._kills !== undefined) p._kills++;   // vet kill tracking
         this.particles.explode(target.x, target.y, '#ff3c3c', 10);
         this.audio.enemyDestroyed();
         this.score += Math.round(10 * this._scoreMulti);
@@ -292,6 +353,9 @@ export class Game {
       this._lasers.push({ x1: e.x, y1: e.y, x2: target.x, y2: target.y,
                           color: '#ff3c3c', ttl: 0.08 });
       if (target.takeDamage(e.fireDamage)) {
+        if (target._vet > 0 && target._callsign) {
+          this._showAlert(`🎖 ${target._callsign} أُسقط!`);
+        }
         this.particles.explode(target.x, target.y, '#00d4ff', 6);
         this.waveLosses++;
         this.totalLosses++;
@@ -364,6 +428,12 @@ export class Game {
 
     // Track boss waves cleared
     if (this.wave % 5 === 0) this._bossWavesCleared++;
+
+    // Vet progression: increment wavesAlive then check promotions
+    for (const d of this.playerSwarm.drones) {
+      if (!d.dead) d._wavesAlive = (d._wavesAlive ?? 0) + 1;
+    }
+    this._checkVetPromotions();
 
     this.score += Math.round(100 * this.wave * this._scoreMulti);
     this._awaitingUpgrade = true;
@@ -477,6 +547,7 @@ export class Game {
     this.waveAnnouncer.draw(ctx, W, H);
     this._drawAlertBanner();
     this._drawClickHint();
+    const vetCount = this.playerSwarm.drones.filter(d => !d.dead && d._vet > 0).length;
     this.hud.draw(
       this.score, this.wave,
       this.cityResources,
@@ -486,7 +557,10 @@ export class Game {
       this.dataCollector.serverStatus,
       this.totalKills, this.totalLosses,
       this.hazards.length,
-      this.wave % 5 === 0
+      this.wave % 5 === 0,
+      this.playerSwarm.activeGroup,
+      vetCount,
+      this._playerIdentity?.callsign ?? ''
     );
   }
 

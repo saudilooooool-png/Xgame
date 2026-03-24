@@ -18,7 +18,8 @@ export class HUD {
    */
   draw(score, wave, cityResources, friendlyCount, formation,
        samples, serverStatus, kills = 0, losses = 0,
-       hazardCount = 0, isBossWave = false) {
+       hazardCount = 0, isBossWave = false,
+       activeGroup = 'A', vetCount = 0, callsign = '') {
     const ctx = this.canvas.ctx;
     ctx.save();
 
@@ -31,7 +32,29 @@ export class HUD {
       `DRONES    ${friendlyCount}`,
       `FORMATION ${formation.toUpperCase()}`,
     ];
+    if (callsign) lines.push(`CALLSIGN  ${callsign}`);
     lines.forEach((line, i) => ctx.fillText(line, 18, 28 + i * 20));
+
+    // Group A/B toggle indicator
+    const groupY = 28 + lines.length * 20 + 4;
+    ctx.font = 'bold 11px monospace';
+    ctx.fillStyle = activeGroup === 'A' ? 'rgba(0,212,255,0.9)' : 'rgba(0,212,255,0.35)';
+    ctx.fillText('[A]', 18, groupY);
+    ctx.fillStyle = activeGroup === 'B' ? 'rgba(0,212,255,0.9)' : 'rgba(0,212,255,0.35)';
+    ctx.fillText('[B]', 44, groupY);
+    ctx.font = '9px monospace';
+    ctx.fillStyle = 'rgba(0,212,255,0.30)';
+    ctx.fillText('Tab=toggle  S=split', 68, groupY);
+
+    // Vet count badge
+    if (vetCount > 0) {
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = 'rgba(255,200,0,0.85)';
+      ctx.shadowColor = '#ffcc00';
+      ctx.shadowBlur  = 6;
+      ctx.fillText(`🎖 ×${vetCount}`, 18, groupY + 16);
+      ctx.shadowBlur = 0;
+    }
 
     // kills / losses
     ctx.font = '12px monospace';

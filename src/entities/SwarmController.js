@@ -2,14 +2,23 @@ import { Drone } from './Drone.js';
 import { computeBoidForce } from '../ai/Boids.js';
 import { FORMATIONS } from '../ai/Formations.js';
 import { FRIENDLY_ROLES } from './FriendlyRoles.js';
+import { blueprintMultipliers } from '../data/PlayerIdentity.js';
 
 export class SwarmController {
   constructor(count, canvas, type) {
     this.canvas = canvas;
-    this.type = type;
+    this.type   = type;
     this.currentFormation = 'wedge';
-    this.targetZone = null; // {x, y} — where the swarm should go
-    this.formationTargets = []; // per-drone targets from formation calc
+    this.targetZone       = null;
+    this.formationTargets = [];
+
+    // A/B group system
+    this.activeGroup = 'A';        // which group the player controls
+    this._targetA    = null;       // target zone for group A
+    this._targetB    = null;       // target zone for group B
+
+    // Player identity (set via setIdentity before spawning drones)
+    this._identity = null;
 
     this.drones = Array.from({ length: count }, () =>
       this._makeDrone('standard',
@@ -19,26 +28,59 @@ export class SwarmController {
     );
   }
 
+  // ── Identity ───────────────────────────────────────────────────────────────
+
+  /** Call this BEFORE reinforce() so new drones receive the identity. */
+  setIdentity(identity) {
+    this._identity = identity;
+    // Apply to existing drones too (e.g. after restart)
+    for (const d of this.drones) this._applyIdentity(d, identity);
+  }
+
+  _applyIdentity(drone, identity) {
+    if (!identity) return;
+    drone._teamColor  = identity.teamColor;
+    drone._teamShadow = identity.teamShadow;
+    drone._radarShape = identity.radarShape;
+  }
+
   // ── Internal factory ──────────────────────────────────────────────────────
 
   _makeDrone(role, x, y) {
     const d = new Drone(x, y, this.type);
     this._applyRole(d, role);
+    if (this._identity) {
+      this._applyIdentity(d, this._identity);
+      this._applyBlueprint(d, this._identity.blueprint);
+    }
     return d;
   }
 
   _applyRole(drone, role) {
     const cfg = FRIENDLY_ROLES[role] ?? FRIENDLY_ROLES.standard;
-    drone.role      = role;
-    drone.hp        = cfg.hp;
-    drone.maxHp     = cfg.maxHp;
-    drone.maxSpeed  = cfg.maxSpeed;
-    drone.fireRange = cfg.fireRange;
+    drone.role       = role;
+    drone.hp         = cfg.hp;
+    drone.maxHp      = cfg.maxHp;
+    drone.maxSpeed   = cfg.maxSpeed;
+    drone.fireRange  = cfg.fireRange;
     drone.fireDamage = cfg.fireDamage;
-    drone.fireRate  = cfg.fireRate;
-    drone._fireTimer = Math.random() * cfg.fireRate;
+    drone.fireRate   = cfg.fireRate;
+    drone._fireTimer   = Math.random() * cfg.fireRate;
     drone._roleColor   = cfg.color;
     drone._roleShadow  = cfg.shadowColor;
+  }
+
+  /** Apply blueprint multipliers on top of role stats. */
+  _applyBlueprint(drone, bp) {
+    if (!bp) return;
+    const m = blueprintMultipliers(bp);
+    drone.maxSpeed   = Math.round(drone.maxSpeed   * m.speed);
+    drone.maxHp      = Math.round(drone.maxHp      * m.armor);
+    drone.hp         = drone.maxHp;
+    drone.fireDamage = Math.round(drone.fireDamage * m.damage);
+    drone.fireRate   = +(drone.fireRate * m.fireRate).toFixed(3);
+    drone.fireRange  = Math.round(drone.fireRange  * m.range);
+    if (m.aggrSpeed > 1) drone.maxSpeed = Math.round(drone.maxSpeed * m.aggrSpeed);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
@@ -48,20 +90,57 @@ export class SwarmController {
     this.currentFormation = name;
     const tx = cx ?? (this.targetZone?.x ?? this.canvas.width / 2);
     const ty = cy ?? (this.targetZone?.y ?? this.canvas.height / 2);
-    this._recalcFormation(name, tx, ty);
+    this._recalcFormationForGroup('A', tx, ty);
+    if (this._targetB) this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
   }
 
   setTargetZone(x, y) {
     this.targetZone = { x, y };
-    this._recalcFormation(this.currentFormation, x, y);
+    if (this.activeGroup === 'A') {
+      this._targetA = { x, y };
+      this._recalcFormationForGroup('A', x, y);
+    } else {
+      this._targetB = { x, y };
+      this._recalcFormationForGroup('B', x, y);
+    }
   }
 
-  _recalcFormation(name, cx, cy) {
-    const positions = FORMATIONS[name](this.drones.length, cx, cy);
-    this.formationTargets = positions;
-    this.drones.forEach((d, i) => {
+  /** Recalculate formation targets for one group only. */
+  _recalcFormationForGroup(group, cx, cy) {
+    const groupDrones = this.drones.filter(d => !d.dead && d._group === group);
+    if (!groupDrones.length) return;
+    const positions = FORMATIONS[this.currentFormation](groupDrones.length, cx, cy);
+    groupDrones.forEach((d, i) => {
       d.target = positions[i] ?? { x: cx, y: cy };
     });
+    // Keep formationTargets compatible with old API (Group A only)
+    if (group === 'A') this.formationTargets = positions;
+  }
+
+  // Kept for backward compatibility (used in draw)
+  _recalcFormation(name, cx, cy) {
+    this._recalcFormationForGroup('A', cx, cy);
+  }
+
+  /** Split drones evenly between group A and B (alternating). */
+  splitGroups() {
+    const alive = this.drones.filter(d => !d.dead);
+    alive.forEach((d, i) => { d._group = i % 2 === 0 ? 'A' : 'B'; });
+    if (this._targetA) this._recalcFormationForGroup('A', this._targetA.x, this._targetA.y);
+    if (this._targetB) this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
+    else {
+      // Default group B target: same as group A but shifted
+      const tA = this._targetA ?? { x: this.canvas.width / 2, y: this.canvas.height / 2 };
+      this._targetB = { x: tA.x + 60, y: tA.y + 60 };
+      this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
+    }
+  }
+
+  /** Merge both groups back into A. */
+  mergeGroups() {
+    this.drones.forEach(d => { d._group = 'A'; });
+    this.activeGroup = 'A';
+    if (this._targetA) this._recalcFormationForGroup('A', this._targetA.x, this._targetA.y);
   }
 
   /** Add n drones of the given role (default 'standard') */
@@ -136,8 +215,9 @@ export class SwarmController {
   }
 
   _drawDrone(ctx, d) {
-    const color  = d._roleColor  ?? '#00d4ff';
-    const shadow = d._roleShadow ?? '#00d4ff';
+    // Team color takes priority over role color for friendly drones
+    const color  = d._teamColor  ?? d._roleColor  ?? '#00d4ff';
+    const shadow = d._teamShadow ?? d._roleShadow ?? '#00d4ff';
     const role   = d.role ?? 'standard';
 
     // Trail
@@ -200,10 +280,48 @@ export class SwarmController {
     ctx.fill();
     ctx.restore();
 
+    // ── Group B indicator (dashed ring) ──────────────────────────────
+    if (d._group === 'B') {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 1;
+      ctx.globalAlpha = 0.45;
+      ctx.setLineDash([3, 4]);
+      ctx.shadowBlur  = 0;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // ── Veteran ring ─────────────────────────────────────────────────
+    if (d._vet === 1) {
+      ctx.save();
+      ctx.strokeStyle = '#ffcc00';
+      ctx.lineWidth   = 1.2;
+      ctx.shadowColor = '#ffcc00';
+      ctx.shadowBlur  = 7;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (d._vet >= 2) {
+      ctx.save();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth   = 1.5;
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur  = 10;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // HP bar (when damaged)
     if (d.hp < d.maxHp) {
       const bw = 18, bh = 2;
-      const bx = d.x - bw / 2, by = d.y - 12;
+      const bx = d.x - bw / 2, by = d.y - 14;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(bx, by, bw, bh);
       ctx.fillStyle = color;

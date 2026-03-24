@@ -43,12 +43,14 @@ export class RadarSweep {
       if (!this._swept(prev, this.angle, ea)) continue;
 
       // Determine blip appearance
-      const isEnemy = e._team === 'enemy';
-      const color   = isEnemy ? '#ff4444' : '#00ccff';
-      const size    = (e._isBoss || e._role === 'gunship') ? 6.5 : 3.5;
+      const isEnemy = e.type === 'enemy';
+      const color   = isEnemy ? '#ff4444' : (e._teamColor ?? '#00ccff');
+      const shape   = isEnemy ? 'circle'  : (e._radarShape ?? 'circle');
+      const size    = (e._isBoss || e.role === 'gunship') ? 6.5 : 3.5;
+      const vet     = e._vet ?? 0;
 
       const alreadyKnown = this._blips.has(e);
-      this._blips.set(e, { x: e.x, y: e.y, age: 0, color, size });
+      this._blips.set(e, { x: e.x, y: e.y, age: 0, color, shape, size, vet });
 
       // Ping flash only on first detection of a new contact
       if (!alreadyKnown) {
@@ -130,9 +132,19 @@ export class RadarSweep {
       ctx.fillStyle   = b.color;
       ctx.shadowColor = b.color;
       ctx.shadowBlur  = 10 * decay;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, r, 0, TWO_PI);
-      ctx.fill();
+      this._drawShape(ctx, b.x, b.y, r, b.shape ?? 'circle');
+
+      // Veteran rings
+      if (b.vet >= 1) {
+        ctx.shadowBlur  = 8 * decay;
+        ctx.strokeStyle = b.vet >= 2 ? '#ffffff' : '#ffcc00';
+        ctx.shadowColor = b.vet >= 2 ? '#ffffff' : '#ffcc00';
+        ctx.lineWidth   = b.vet >= 2 ? 1.5 : 1.2;
+        ctx.fillStyle   = 'transparent';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, r + 4, 0, TWO_PI);
+        ctx.stroke();
+      }
     }
 
     // ── Ping flashes (expanding ring on new contact) ───────────────────
@@ -157,5 +169,37 @@ export class RadarSweep {
     ctx.globalAlpha = 1;
     ctx.shadowBlur  = 0;
     ctx.restore();
+  }
+
+  /**
+   * Draw a blip shape at (x, y) with radius r.
+   * shape: 'circle' | 'diamond' | 'triangle' | 'cross'
+   */
+  _drawShape(ctx, x, y, r, shape) {
+    if (shape === 'cross') {
+      const w = r * 0.65;
+      ctx.fillRect(x - w / 2, y - r * 1.3, w, r * 2.6);
+      ctx.fillRect(x - r * 1.3, y - w / 2, r * 2.6, w);
+      return;
+    }
+    ctx.beginPath();
+    switch (shape) {
+      case 'diamond':
+        ctx.moveTo(x,         y - r * 1.4);
+        ctx.lineTo(x + r,     y);
+        ctx.lineTo(x,         y + r * 1.4);
+        ctx.lineTo(x - r,     y);
+        ctx.closePath();
+        break;
+      case 'triangle':
+        ctx.moveTo(x,           y - r * 1.3);
+        ctx.lineTo(x + r * 1.1, y + r * 0.8);
+        ctx.lineTo(x - r * 1.1, y + r * 0.8);
+        ctx.closePath();
+        break;
+      default: // circle
+        ctx.arc(x, y, r, 0, TWO_PI);
+    }
+    ctx.fill();
   }
 }
