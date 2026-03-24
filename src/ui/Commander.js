@@ -1,11 +1,20 @@
 import { FORMATION_NAMES } from '../ai/Formations.js';
+import { ResourcesPanel } from './ResourcesPanel.js';
 
 const FORMATION_ICONS = {
-  wedge:   '▲ Wedge',
-  circle:  '● Circle',
-  scatter: '✦ Scatter',
-  line:    '━ Line',
-  defend:  '⬡ Defend',
+  wedge:   '▲',
+  circle:  '●',
+  scatter: '✦',
+  line:    '━',
+  defend:  '⬡',
+};
+
+const FORMATION_LABELS = {
+  wedge:   'هجوم',
+  circle:  'دفاع',
+  scatter: 'تفرق',
+  line:    'خط',
+  defend:  'حماية',
 };
 
 const FORMATION_TIPS = {
@@ -23,112 +32,201 @@ export class Commander {
     this.dataCollector = dataCollector;
     this.game = game;
 
-    this._targetZoneDisplay = null; // {x, y, alpha}
+    this._targetZoneDisplay = null;
     this._buttons = [];
+    this._resourcesPanel = null;
 
     this._buildUI();
     this._bindEvents();
   }
 
   _buildUI() {
-    // Formation buttons panel
+    // ── Formation buttons panel ─────────────────────────────────────────────
     const panel = document.createElement('div');
     panel.id = 'formation-panel';
     panel.style.cssText = `
-      position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-      display:flex; gap:8px; z-index:100;
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 6px;
+      z-index: 100;
     `;
 
+    // Formation buttons
     FORMATION_NAMES.forEach((name) => {
       const btn = document.createElement('button');
-      btn.textContent = FORMATION_ICONS[name] ?? name;
+      btn.innerHTML = `
+        <span style="font-size:16px; display:block; line-height:1;">${FORMATION_ICONS[name] ?? name}</span>
+        <span style="font-size:9px; display:block; opacity:0.7; margin-top:2px; letter-spacing:0.5px;">${FORMATION_LABELS[name] ?? name}</span>
+      `;
       btn.dataset.formation = name;
       btn.title = FORMATION_TIPS[name] ?? '';
       btn.style.cssText = `
-        background:rgba(0,20,40,0.85); color:#00d4ff;
-        border:1px solid #00d4ff44; border-radius:6px;
-        padding:8px 14px; font-size:13px; cursor:pointer;
-        font-family:monospace; transition:all 0.15s;
-        letter-spacing:0.5px;
+        background: rgba(0, 20, 40, 0.88);
+        color: #00d4ff;
+        border: 1px solid rgba(0, 212, 255, 0.3);
+        border-radius: 10px;
+        padding: 10px 14px;
+        min-width: 58px;
+        font-family: monospace;
+        transition: all 0.15s;
+        text-align: center;
       `;
-      btn.addEventListener('mouseenter', () => {
-        btn.style.background = 'rgba(0,180,255,0.2)';
-        btn.style.borderColor = '#00d4ff';
+      btn.addEventListener('pointerenter', () => {
+        if (!btn.dataset.active) {
+          btn.style.background = 'rgba(0, 180, 255, 0.18)';
+          btn.style.borderColor = 'rgba(0, 212, 255, 0.7)';
+        }
       });
-      btn.addEventListener('mouseleave', () => {
-        btn.style.background = btn.dataset.active
-          ? 'rgba(0,180,255,0.25)'
-          : 'rgba(0,20,40,0.85)';
-        btn.style.borderColor = btn.dataset.active ? '#00d4ff' : '#00d4ff44';
+      btn.addEventListener('pointerleave', () => {
+        if (!btn.dataset.active) {
+          btn.style.background = 'rgba(0, 20, 40, 0.88)';
+          btn.style.borderColor = 'rgba(0, 212, 255, 0.3)';
+        }
       });
       btn.addEventListener('click', () => this._onFormationClick(name, btn));
       panel.appendChild(btn);
       this._buttons.push(btn);
     });
 
-    // AI toggle button
+    // ── Resources toggle button ─────────────────────────────────────────────
+    this._resBtn = document.createElement('button');
+    this._resBtn.innerHTML = `
+      <span style="font-size:16px; display:block; line-height:1;">🏙</span>
+      <span style="font-size:9px; display:block; opacity:0.7; margin-top:2px; letter-spacing:0.5px;">موارد</span>
+    `;
+    this._resBtn.style.cssText = `
+      background: rgba(0, 30, 20, 0.88);
+      color: #00ff88;
+      border: 1px solid rgba(0, 255, 136, 0.3);
+      border-radius: 10px;
+      padding: 10px 14px;
+      min-width: 58px;
+      font-family: monospace;
+      transition: all 0.15s;
+      text-align: center;
+    `;
+    this._resBtn.addEventListener('click', () => {
+      this._resourcesPanel.toggle();
+      const on = this._resourcesPanel._visible;
+      this._resBtn.style.background    = on ? 'rgba(0, 100, 60, 0.9)'   : 'rgba(0, 30, 20, 0.88)';
+      this._resBtn.style.borderColor   = on ? 'rgba(0, 255, 136, 0.8)'  : 'rgba(0, 255, 136, 0.3)';
+    });
+    panel.appendChild(this._resBtn);
+
+    // ── AI toggle button ────────────────────────────────────────────────────
     this._aiBtn = document.createElement('button');
-    this._aiBtn.textContent = '⬡ AI: OFF';
+    this._aiBtn.innerHTML = `
+      <span style="font-size:16px; display:block; line-height:1;">⬡</span>
+      <span style="font-size:9px; display:block; opacity:0.7; margin-top:2px; letter-spacing:0.5px;">AI: OFF</span>
+    `;
     this._aiBtn.style.cssText = `
-      background:rgba(40,0,60,0.85); color:#cc88ff;
-      border:1px solid #cc88ff44; border-radius:6px;
-      padding:8px 14px; font-size:13px; cursor:pointer;
-      font-family:monospace; letter-spacing:0.5px;
+      background: rgba(40, 0, 60, 0.88);
+      color: #cc88ff;
+      border: 1px solid rgba(204, 136, 255, 0.3);
+      border-radius: 10px;
+      padding: 10px 14px;
+      min-width: 58px;
+      font-family: monospace;
+      transition: all 0.15s;
+      text-align: center;
     `;
     this._aiBtn.addEventListener('click', () => this._onAIToggle());
     panel.appendChild(this._aiBtn);
 
-    // Download button
+    // ── Export Data button ──────────────────────────────────────────────────
     const dlBtn = document.createElement('button');
-    dlBtn.textContent = '⬇ Export Data';
+    dlBtn.innerHTML = `
+      <span style="font-size:16px; display:block; line-height:1;">⬇</span>
+      <span style="font-size:9px; display:block; opacity:0.7; margin-top:2px; letter-spacing:0.5px;">Export</span>
+    `;
     dlBtn.style.cssText = `
-      background:rgba(0,40,20,0.85); color:#00ff88;
-      border:1px solid #00ff8844; border-radius:6px;
-      padding:8px 14px; font-size:13px; cursor:pointer;
-      font-family:monospace;
+      background: rgba(0, 40, 20, 0.88);
+      color: #00ff88;
+      border: 1px solid rgba(0, 255, 136, 0.25);
+      border-radius: 10px;
+      padding: 10px 14px;
+      min-width: 58px;
+      font-family: monospace;
+      transition: all 0.15s;
+      text-align: center;
     `;
     dlBtn.addEventListener('click', () => this.dataCollector.download());
     panel.appendChild(dlBtn);
 
     document.body.appendChild(panel);
 
-    // Hint label
+    // ── Top hint ───────────────────────────────────────────────────────────
     const hint = document.createElement('div');
     hint.style.cssText = `
-      position:fixed; top:14px; left:50%; transform:translateX(-50%);
-      color:rgba(0,212,255,0.5); font-family:monospace; font-size:12px;
-      pointer-events:none; z-index:100;
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(0, 212, 255, 0.4);
+      font-family: monospace;
+      font-size: 11px;
+      pointer-events: none;
+      z-index: 100;
+      white-space: nowrap;
     `;
-    hint.textContent = '🖱 انقر لتحريك الأسراب   |   الأزرار أدناه: غيّر التشكيل';
+    hint.textContent = 'اضغط الشاشة لتحريك الأسراب  ·  الأزرار أدناه: التشكيل';
     document.body.appendChild(hint);
+
+    // ── Resources panel (created after game is ready) ──────────────────────
+    // Defer creation so game.cityResources is initialized
+    this._resourcesPanel = new ResourcesPanel(this.game);
   }
 
   _bindEvents() {
-    this.canvas.el.addEventListener('click', (e) => {
-      if (this.game.aiMode) return; // ignore clicks in AI mode
-      const rect = this.canvas.el.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      this._onTargetClick(x, y);
+    const canvas = this.canvas.el;
+
+    // Mouse click
+    canvas.addEventListener('click', (e) => {
+      if (this.game.aiMode) return;
+      const rect = canvas.getBoundingClientRect();
+      this._onTargetClick(e.clientX - rect.left, e.clientY - rect.top);
     });
+
+    // Touch support — treat touchstart as a target move
+    canvas.addEventListener('touchstart', (e) => {
+      if (this.game.aiMode) return;
+      e.preventDefault(); // prevent scroll / zoom
+      const touch = e.changedTouches[0];
+      const rect  = canvas.getBoundingClientRect();
+      this._onTargetClick(touch.clientX - rect.left, touch.clientY - rect.top);
+    }, { passive: false });
+
+    // Touch drag — continuously update target zone while dragging
+    canvas.addEventListener('touchmove', (e) => {
+      if (this.game.aiMode) return;
+      e.preventDefault();
+      const touch = e.changedTouches[0];
+      const rect  = canvas.getBoundingClientRect();
+      // Only move swarm, skip data collection on drag frames
+      this._targetZoneDisplay = { x: touch.clientX - rect.left, y: touch.clientY - rect.top, alpha: 1 };
+      this.swarm.setTargetZone(touch.clientX - rect.left, touch.clientY - rect.top);
+    }, { passive: false });
   }
 
   _onAIToggle() {
     this.game.toggleAI();
     const on = this.game.aiMode;
-    const label = on
-      ? `⬡ AI: ${this.game.agent.statusLabel}`
-      : '⬡ AI: OFF';
-    this._aiBtn.textContent = label;
-    this._aiBtn.style.background = on ? 'rgba(80,0,120,0.9)' : 'rgba(40,0,60,0.85)';
-    this._aiBtn.style.borderColor = on ? '#cc88ff' : '#cc88ff44';
-    this._aiBtn.style.color = on ? '#ee99ff' : '#cc88ff';
+    const label = on ? (this.game.agent.statusLabel ?? 'ON') : 'OFF';
+    this._aiBtn.innerHTML = `
+      <span style="font-size:16px; display:block; line-height:1;">⬡</span>
+      <span style="font-size:9px; display:block; opacity:0.7; margin-top:2px; letter-spacing:0.5px;">AI: ${label}</span>
+    `;
+    this._aiBtn.style.background  = on ? 'rgba(80, 0, 120, 0.9)'    : 'rgba(40, 0, 60, 0.88)';
+    this._aiBtn.style.borderColor = on ? 'rgba(204, 136, 255, 0.8)' : 'rgba(204, 136, 255, 0.3)';
+    this._aiBtn.style.color       = on ? '#ee99ff' : '#cc88ff';
 
-    // update label once model finishes loading
     if (on) {
       const poll = setInterval(() => {
         const lbl = this.game.agent.statusLabel;
-        this._aiBtn.textContent = `⬡ AI: ${lbl}`;
+        this._aiBtn.querySelector('span:last-child').textContent = `AI: ${lbl}`;
         if (lbl !== '⟳') clearInterval(poll);
       }, 500);
     }
@@ -155,11 +253,11 @@ export class Commander {
   _onFormationClick(name, btn) {
     this._buttons.forEach((b) => {
       b.dataset.active = '';
-      b.style.background = 'rgba(0,20,40,0.85)';
-      b.style.borderColor = '#00d4ff44';
+      b.style.background   = 'rgba(0, 20, 40, 0.88)';
+      b.style.borderColor  = 'rgba(0, 212, 255, 0.3)';
     });
     btn.dataset.active = '1';
-    btn.style.background = 'rgba(0,180,255,0.25)';
+    btn.style.background  = 'rgba(0, 180, 255, 0.28)';
     btn.style.borderColor = '#00d4ff';
 
     const tz = this.swarm.targetZone;
@@ -179,13 +277,15 @@ export class Commander {
 
   _captureGameState() {
     const g = this.game;
+    // Use first alive objective for legacy fields
+    const primaryObj = g.objectives?.find(o => o.health > 0) ?? g.objectives?.[0];
     return {
       timestamp: Date.now(),
       wave: g.wave,
       score: g.score,
-      objectiveHealth: g.objective.health,
-      objectiveX: +(g.objective.x.toFixed(1)),
-      objectiveY: +(g.objective.y.toFixed(1)),
+      objectiveHealth: primaryObj?.health ?? 0,
+      objectiveX: +(primaryObj?.x?.toFixed(1) ?? 0),
+      objectiveY: +(primaryObj?.y?.toFixed(1) ?? 0),
       friendlyCount: g.playerSwarm.drones.length,
       enemyCount: g.enemySwarm.drones.length,
       friendlyDrones: g.playerSwarm.serializeState(),
@@ -194,6 +294,11 @@ export class Commander {
       waveKills: g.waveKills,
       waveLosses: g.waveLosses,
       threatScore: +(g.threatScore().toFixed(3)),
+      cityResources: {
+        power: +((g.cityResources?.power ?? 100).toFixed(1)),
+        water: +((g.cityResources?.water ?? 100).toFixed(1)),
+        food:  +((g.cityResources?.food  ?? 100).toFixed(1)),
+      },
       enemyRoles: g.enemySwarm.drones.reduce((acc, d) => {
         acc[d.role ?? 'rusher'] = (acc[d.role ?? 'rusher'] ?? 0) + 1;
         return acc;
@@ -204,10 +309,7 @@ export class Commander {
   _evaluateOutcome(targetX, targetY) {
     const g = this.game;
     const { drones } = g.playerSwarm;
-    const snapKills     = g.waveKills;
-    const snapLosses    = g.waveLosses;
-    const snapThreat    = +(g.threatScore().toFixed(3));
-    const snapObjHealth = g.objective.health;
+    const primaryObj = g.objectives?.find(o => o.health > 0) ?? g.objectives?.[0];
 
     let reached = false;
     if (targetX && drones.length > 0) {
@@ -218,11 +320,11 @@ export class Commander {
 
     return {
       reached,
-      kills:           snapKills,
-      losses:          snapLosses,
-      threatScore:     snapThreat,
-      objectiveHealth: snapObjHealth,
-      reward: (snapKills - snapLosses) + (reached ? 1 : -0.5) + (1 - snapThreat) * 2,
+      kills:           g.waveKills,
+      losses:          g.waveLosses,
+      threatScore:     +(g.threatScore().toFixed(3)),
+      objectiveHealth: primaryObj?.health ?? 0,
+      reward: (g.waveKills - g.waveLosses) + (reached ? 1 : -0.5) + (1 - g.threatScore()) * 2,
     };
   }
 

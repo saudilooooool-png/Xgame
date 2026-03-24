@@ -6,6 +6,8 @@ html, body {
   overflow: hidden;
   background: #0a0f1a;
   font-family: monospace;
+  /* Prevent double-tap zoom on mobile */
+  touch-action: manipulation;
 }
 
 #game-container {
@@ -18,11 +20,54 @@ html, body {
   width: 100%;
   height: 100%;
   cursor: crosshair;
+  /* Disable all default touch gestures on the game canvas */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button {
   cursor: pointer;
   user-select: none;
+  /* Minimum tap target size */
+  min-height: 44px;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:focus { outline: none; }
+
+/* ── Formation panel — mobile responsive ─────────────────────────────────── */
+#formation-panel {
+  max-width: calc(100vw - 16px);
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 6px 8px;
+  background: rgba(0, 8, 20, 0.75);
+  border-radius: 12px;
+  border: 1px solid rgba(0, 212, 255, 0.15);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  gap: 6px !important;
+}
+
+/* ── Mobile: stack formation buttons 2-per-row on very small screens ──────── */
+@media (max-width: 480px) {
+  #formation-panel button {
+    font-size: 11px !important;
+    padding: 10px 10px !important;
+    min-width: 72px;
+  }
+}
+
+/* ── Scrollable overlays for mobile ─────────────────────────────────────── */
+.mobile-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: 90vh;
+}
+
+/* ── Prevent text selection on game UI ──────────────────────────────────── */
+#formation-panel, .game-hud {
+  -webkit-user-select: none;
+  user-select: none;
+}
