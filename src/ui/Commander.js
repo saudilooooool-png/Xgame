@@ -260,6 +260,36 @@ export class Commander {
     this.dataCollector.recordDecision(gs, action);
   }
 
+  // Called each frame from Game._update to highlight the recommended formation
+  updateRecommendation() {
+    if (this.game._deploymentPhase <= 0 && this.game._waveCountdown <= 0) {
+      // Not in deployment — clear recommendation glow
+      this._buttons.forEach(b => {
+        if (!b.dataset.active) b.style.boxShadow = 'none';
+      });
+      return;
+    }
+    const enemies = this.game.enemySwarm?.drones ?? [];
+    const hasBoss     = enemies.some(e => e.role === 'boss');
+    const hasHeavy    = enemies.some(e => e.role === 'sniper' || e.role === 'commander');
+    const count       = enemies.length;
+    const recommended = hasBoss    ? 'scatter'
+                      : hasHeavy   ? 'circle'
+                      : count > 12 ? 'wedge'
+                      :              'circle';
+    this._buttons.forEach(b => {
+      if (b.dataset.active) return; // don't override active button
+      if (b.dataset.formation === recommended) {
+        const pulse = 0.55 + 0.45 * Math.abs(Math.sin(Date.now() / 600));
+        b.style.boxShadow = `0 0 ${Math.round(8 + pulse * 8)}px rgba(0, 255, 180, ${(pulse * 0.8).toFixed(2)})`;
+        b.style.borderColor = 'rgba(0, 255, 180, 0.75)';
+      } else {
+        b.style.boxShadow = 'none';
+        b.style.borderColor = 'rgba(0, 212, 255, 0.3)';
+      }
+    });
+  }
+
   _onFormationClick(name, btn) {
     this._buttons.forEach((b) => {
       b.dataset.active = '';

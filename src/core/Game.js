@@ -78,6 +78,7 @@ export class Game {
     // ── Deployment phase (before enemies spawn each wave) ─────────────────────
     this._deploymentPhase   = 0;
     this._combatStartFlash  = 0;  // brief white flash when combat begins
+    this._waveCountdown     = 0;  // 3-2-1 countdown before enemies spawn
 
     // ── Side missions ─────────────────────────────────────────────────────────
     this._sideMission           = null;   // active SideMission instance
@@ -433,8 +434,10 @@ export class Game {
   }
 
   _skipDeployment() {
-    if (this._deploymentPhase <= 0) return;
+    const canSkip = this._deploymentPhase > 0 || this._waveCountdown > 0;
+    if (!canSkip) return;
     this._deploymentPhase   = 0;
+    this._waveCountdown     = 0;
     this._combatStartFlash  = 0.18;
     this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
     this._pendingEnemyOverride = undefined;
@@ -490,13 +493,29 @@ export class Game {
       const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
       this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
       if (this._deploymentPhase <= 0) {
-        this._deploymentPhase  = 0;
+        this._deploymentPhase = 0;
+        // Start 3-2-1 countdown before spawning
+        if (this._waveCountdown <= 0) this._waveCountdown = 3;
+      }
+      return;  // skip combat, enemy AI, hazards during deployment
+    }
+
+    // ── Wave countdown (3-2-1 before enemies spawn) ───────────────────────────
+    if (this._waveCountdown > 0) {
+      this._waveCountdown -= dt;
+      this.playerSwarm.update(dt, []);
+      this.particles.update(dt);
+      this.waveAnnouncer.update(dt);
+      const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+      this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
+      if (this._waveCountdown <= 0) {
+        this._waveCountdown    = 0;
         this._combatStartFlash = 0.18;
         this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
         this._pendingEnemyOverride = undefined;
         this._showAlert('⚔ الهجوم!');
       }
-      return;  // skip combat, enemy AI, hazards during deployment
+      return;
     }
 
     this._lasers = this._lasers.filter(l => (l.ttl -= dt) > 0);
@@ -597,10 +616,13 @@ export class Game {
     // ── Objective threat state (drives spinning danger ring) ──────────
     const THREAT_R2 = 200 * 200;
     for (const obj of this.objectives) {
-      obj._threatened = this.enemySwarm.drones.some(e => {
+      let count = 0;
+      for (const e of this.enemySwarm.drones) {
         const dx = e.x - obj.x, dy = e.y - obj.y;
-        return dx * dx + dy * dy < THREAT_R2;
-      });
+        if (dx * dx + dy * dy < THREAT_R2) count++;
+      }
+      obj._threatCount = count;
+      obj._threatened  = count > 0;
     }
 
     this._applyHazards(dt);
@@ -611,6 +633,7 @@ export class Game {
     this._checkWaveComplete();
     this._checkGameOver();
     this._updateFX(dt);
+    this.commander.updateRecommendation();
   }
 
   // ── Side missions ─────────────────────────────────────────────────────────
@@ -916,6 +939,7 @@ export class Game {
   _checkWaveComplete() {
     if (this._waveDelay > 0) return;
     if (this._deploymentPhase > 0) return;
+    if (this._waveCountdown > 0) return;
     if (this._awaitingUpgrade) return;
     if (this.enemySwarm.drones.length > 0 || this.enemySwarm.spawning) return;
 
@@ -1248,6 +1272,41 @@ export class Game {
       ctx.restore();
     }
 
+    // ── K/L ratio bar ─────────────────────────────────────────────────────────
+    {
+      const total = this.waveKills + this.waveLosses;
+      if (total > 0) {
+        const ratio  = this.waveKills / total;   // 0=all losses, 1=all kills
+        const barW   = 120, barH = 4;
+        const barX   = W / 2 - barW / 2;
+        const barY   = H - 28;
+        const color  = ratio >= 0.6 ? '#00ff88' : ratio >= 0.35 ? '#ffcc00' : '#ff4444';
+        ctx.save();
+        // Track background
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(barX, barY, barW, barH);
+        // Fill
+        ctx.globalAlpha = 0.80;
+        ctx.fillStyle   = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur  = 6;
+        ctx.fillRect(barX, barY, barW * ratio, barH);
+        ctx.shadowBlur = 0;
+        // Labels
+        ctx.globalAlpha = 0.60;
+        ctx.font        = '9px monospace';
+        ctx.textAlign   = 'left';
+        ctx.fillStyle   = '#00ff88';
+        ctx.fillText(`K:${this.waveKills}`, barX, barY - 3);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#ff5555';
+        ctx.fillText(`L:${this.waveLosses}`, barX + barW, barY - 3);
+        ctx.globalAlpha = 1;
+        ctx.restore();
+      }
+    }
+
     // ── Kill feed ─────────────────────────────────────────────────────────────
     ctx.save();
     ctx.font = '11px monospace';
@@ -1400,6 +1459,31 @@ export class Game {
       ctx.restore();
     }
     for (const obj of this.objectives) obj.draw(ctx);
+    // HP % label + threat count on each objective
+    for (const obj of this.objectives) {
+      if (obj.health <= 0) continue;
+      const pct = obj.health / obj.maxHealth;
+      ctx.save();
+      ctx.textAlign = 'center';
+      // HP %
+      const hpLabel = pct <= 0.30 ? 'CRITICAL' : `${Math.floor(pct * 100)}%`;
+      ctx.font = `bold ${pct <= 0.30 ? 10 : 9}px monospace`;
+      ctx.fillStyle = pct <= 0.30 ? 'rgba(255,60,60,0.95)' : 'rgba(255,200,80,0.80)';
+      ctx.shadowColor = pct <= 0.30 ? '#ff2200' : '#ffaa00';
+      ctx.shadowBlur = pct <= 0.30 ? 8 : 4;
+      ctx.fillText(hpLabel, obj.x, obj.y + 26);
+      // Threat count badge (only when enemies nearby)
+      const tc = obj._threatCount ?? 0;
+      if (tc > 0) {
+        const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 220);
+        ctx.font = 'bold 9px monospace';
+        ctx.fillStyle = `rgba(255, 80, 0, ${pulse})`;
+        ctx.shadowColor = '#ff4400';
+        ctx.shadowBlur = 8;
+        ctx.fillText(`⚠ ×${tc}`, obj.x, obj.y - 44);
+      }
+      ctx.restore();
+    }
     // Draw enemy base (above objectives, below swarms)
     if (this._enemyBase) this._enemyBase.draw(ctx);
     this.commander.drawTargetZone(ctx);
@@ -1439,6 +1523,7 @@ export class Game {
     this._drawAlertBanner();
     this._drawClickHint();
     if (this._deploymentPhase > 0) this._drawDeploymentOverlay(ctx, W, H);
+    if (this._waveCountdown > 0) this._drawWaveCountdown(ctx, W, H);
     this._drawMissionStatus(ctx, W, H);
     const vetCount = this.playerSwarm.drones.filter(d => !d.dead && d._vet > 0).length;
     this.hud.draw(
@@ -1552,6 +1637,45 @@ export class Game {
     ctx.shadowBlur = 0;
     ctx.fillText('انقر لتحريك قواتك  ·  Tab=تبديل A/B  ·  S=تقسيم  ·  Space=ابدأ الآن', W / 2, H - 88);
 
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  _drawWaveCountdown(ctx, W, H) {
+    const t = this._waveCountdown;          // 3 → 0
+    const num = Math.ceil(t);               // 3, 2, 1
+    const scale = 1 + (t % 1) * 0.35;      // pulse: big at tick, shrinks to normal
+    const alpha = Math.min(1, t * 0.8);
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Background dim
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+
+    // Big pulsing digit
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(scale, scale);
+    ctx.font = 'bold 120px monospace';
+    ctx.fillStyle = `rgba(255, 80, 0, ${alpha})`;
+    ctx.shadowColor = '#ff4400';
+    ctx.shadowBlur = 40;
+    ctx.fillText(num, 0, 0);
+    ctx.restore();
+
+    // Label below
+    ctx.font = 'bold 15px monospace';
+    ctx.fillStyle = `rgba(255, 180, 0, ${alpha * 0.85})`;
+    ctx.shadowColor = '#ff8800';
+    ctx.shadowBlur = 12;
+    ctx.fillText('⚔ العدو قادم — Space للإنطلاق الآن', W / 2, H / 2 + 80);
+
+    ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.restore();
   }
