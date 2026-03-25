@@ -16,6 +16,7 @@ import { Agent } from '../ai/Agent.js';
 import { UpgradeScreen } from '../ui/UpgradeScreen.js';
 import { StartScreen } from '../ui/StartScreen.js';
 import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
+import { ScoutIntro } from '../ui/ScoutIntro.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
 import { getWaveStory } from '../data/StoryLines.js';
 import { RadarSweep } from './RadarSweep.js';
@@ -146,6 +147,9 @@ export class Game {
     // ── Quick actions menu ────────────────────────────────────────────────────
     this._quickMenuOpen    = false;
 
+    // ── Scout intro sequence ──────────────────────────────────────────────────
+    this._scoutIntro       = null;
+
     // ── Phase-2 trap system ───────────────────────────────────────────────────
     this._empTraps   = [];    // active EmpTrap instances
     this._empCharges = 3;     // traps available this wave
@@ -216,6 +220,7 @@ export class Game {
     this._baseBonusWaves   = 0;
     this._orbitalScan      = 0;
     this._quickMenuOpen    = false;
+    this._scoutIntro       = null;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -250,8 +255,30 @@ export class Game {
         this._missionApproach = setup.approach;
         this._defenseProfile  = setup.defenseProfile;
         this._clickHintTimer  = 4;
-        this._nextWave();
+        this._runScoutIntro().then(() => this._nextWave());
       });
+    });
+  }
+
+  // ── Scout intro ───────────────────────────────────────────────────────────
+
+  _runScoutIntro() {
+    const W = this.canvas.width, H = this.canvas.height;
+
+    // Show a visual preview of the enemy base so the scout can fly over it
+    this._enemyBase = new EnemyBase(W * 0.50, H * 0.06, 1);
+
+    this._scoutIntro = new ScoutIntro(this.canvas, this.radarSweep, this.objectives);
+
+    const skipHandler = (e) => {
+      if (e.code === 'Space' || e.key === 'Enter') this._scoutIntro?.skip();
+    };
+    window.addEventListener('keydown', skipHandler);
+
+    return this._scoutIntro.show().then(() => {
+      window.removeEventListener('keydown', skipHandler);
+      this._scoutIntro = null;
+      this._enemyBase  = null;   // real base re-created at wave 3
     });
   }
 
@@ -436,6 +463,16 @@ export class Game {
     if (this._clickHintTimer > 0) this._clickHintTimer  -= dt;
     if (this._alertTimer > 0)     this._alertTimer      -= dt;
     if (this.aiMode) this.agent.update(dt);
+
+    // ── Scout intro: only run radar + scout; skip all combat / spawn logic ────
+    if (this._scoutIntro) {
+      this._scoutIntro.update(dt);
+      if (this._enemyBase) this._enemyBase.update(dt);   // show shield animation
+      const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
+      this.radarSweep.update(dt, cx, cy, []);             // sweep keeps rotating
+      this._updateFX(dt);
+      return;
+    }
 
     // ── Deployment phase: let player position forces; enemies not yet spawned ──
     if (this._deploymentPhase > 0) {
@@ -1261,6 +1298,19 @@ export class Game {
     this.shake.apply(ctx);
 
     this._drawCityConnections();
+
+    // During scout intro: draw only the static world (no player/enemy swarms)
+    if (this._scoutIntro) {
+      for (const obj of this.objectives) obj.draw(ctx);
+      if (this._enemyBase) this._enemyBase.draw(ctx);
+      ctx.restore();
+      // 3a. Radar
+      this.radarSweep.draw(ctx, W / 2, H / 2, W, H);
+      // 4a. Scout overlay (drone, trail, comms, title)
+      this._scoutIntro.draw(ctx, W, H);
+      return;
+    }
+
     for (const h of this.hazards) h.draw(ctx);
     for (const t of this._empTraps) t.draw(ctx);
     for (const tw of this._towers) tw.draw(ctx);
