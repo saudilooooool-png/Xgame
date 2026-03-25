@@ -175,10 +175,16 @@ export class EnemySwarm {
 
       // ── Stealth: compute reveal state ──────────────────────────────────────
       if (drone.role === 'stealth') {
+        const wasRevealed = drone._revealed ?? false;
         drone._revealed = friendlyDrones.some(f => {
           const dx = f.x - drone.x, dy = f.y - drone.y;
           return dx * dx + dy * dy < 60 * 60;
         });
+        // Track reveal bloom timer when stealth is first uncovered
+        if (!wasRevealed && drone._revealed) {
+          drone._revealBloom = 0.45;  // seconds
+        }
+        if ((drone._revealBloom ?? 0) > 0) drone._revealBloom -= 1 / 60;
       }
 
       // ── Kamikaze: direct charge, no boids, accelerates near objective ──────
@@ -381,6 +387,25 @@ export class EnemySwarm {
       return; // skip HP bar, skip commander ring
     }
 
+    // ── Stealth reveal bloom (expanding ring on first uncover) ────────────
+    if (role === 'stealth' && (d._revealBloom ?? 0) > 0) {
+      const prog = 1 - d._revealBloom / 0.45;  // 0 → 1
+      ctx.save();
+      ctx.globalAlpha = (1 - prog) * 0.55;
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 2;
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = 14;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 14 + prog * 26, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = (1 - prog) * 0.18;
+      ctx.fillStyle   = color;
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+      ctx.restore();
+    }
+
     // ── Kamikaze: pulsing danger ring ─────────────────────────────────────
     if (role === 'kamikaze') {
       const proximity = Math.max(0, 1 - (d._distToObj ?? 400) / 400);
@@ -537,6 +562,28 @@ export class EnemySwarm {
       ctx.strokeStyle = color;
       ctx.lineWidth   = 0.5;
       ctx.strokeRect(bx, by, bw, bh);
+
+      // Arc HP indicator — matches objective visual language
+      const arcR   = isBoss ? 30 : 20;
+      const hpFrac = d.hp / d.maxHp;
+      ctx.save();
+      // Track (full circle, dim)
+      ctx.strokeStyle = `rgba(0,0,0,0.45)`;
+      ctx.lineWidth   = isBoss ? 3.5 : 2.5;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, arcR, 0, Math.PI * 2);
+      ctx.stroke();
+      // Fill arc
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = isBoss ? 3.5 : 2.5;
+      ctx.lineCap     = 'round';
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = isBoss ? 10 : 6;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, arcR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * hpFrac);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
     }
   }
 

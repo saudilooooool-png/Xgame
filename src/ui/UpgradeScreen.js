@@ -54,9 +54,43 @@ export class UpgradeScreen {
     overlay.appendChild(title);
 
     const strip = document.createElement('div');
-    strip.style.cssText = 'color:rgba(0,212,255,0.5); font-size:12px; letter-spacing:1px; margin-bottom:24px; text-align:center;';
+    strip.style.cssText = 'color:rgba(0,212,255,0.5); font-size:12px; letter-spacing:1px; margin-bottom:10px; text-align:center;';
     strip.textContent = `KILLS: ${stats.kills}   LOSSES: ${stats.losses}   SCORE: ${stats.score}`;
     overlay.appendChild(strip);
+
+    // ── Perfect Wave badge ────────────────────────────────────────────────────
+    if (stats.losses === 0) {
+      const badge = document.createElement('div');
+      badge.style.cssText = `
+        color: #00ff88;
+        font-size: 13px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        margin-bottom: 16px;
+        text-align: center;
+        text-shadow: 0 0 12px #00ff88, 0 0 24px #00ff44;
+        animation: perfectPulse 1s ease-in-out infinite alternate;
+      `;
+      badge.textContent = '⭐ PERFECT WAVE — ZERO LOSSES ⭐';
+      overlay.appendChild(badge);
+      // Inject keyframes if not already added
+      if (!document.getElementById('perfectPulseStyle')) {
+        const pStyle = document.createElement('style');
+        pStyle.id = 'perfectPulseStyle';
+        pStyle.textContent = `
+          @keyframes perfectPulse {
+            from { opacity: 0.75; text-shadow: 0 0 8px #00ff88; }
+            to   { opacity: 1.00; text-shadow: 0 0 20px #00ff88, 0 0 36px #00ff44; }
+          }
+        `;
+        document.head.appendChild(pStyle);
+      }
+    } else {
+      // Spacer to keep layout consistent
+      const spacer = document.createElement('div');
+      spacer.style.marginBottom = '16px';
+      overlay.appendChild(spacer);
+    }
 
     // ── Row 1 — CRAFT ────────────────────────────────────────────────────────
     overlay.appendChild(this._sectionLabel('CRAFT — نشر ٢ طائرات متخصصة', '#44ffcc'));

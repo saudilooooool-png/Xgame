@@ -18,6 +18,7 @@ import { StartScreen } from '../ui/StartScreen.js';
 import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
 import { ScoutIntro } from '../ui/ScoutIntro.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
+import { waveComposition } from '../entities/EnemyRoles.js';
 import { getWaveStory } from '../data/StoryLines.js';
 import { RadarSweep } from './RadarSweep.js';
 import { DroneLab } from '../ui/DroneLab.js';
@@ -135,7 +136,8 @@ export class Game {
     this._comboTimer = 0;    // countdown to reset combo (2.5s per kill)
     this._slowMo     = 0;    // 0-1; 1=full slow, decays in real time
     this._timeScale  = 1;    // physics dt multiplier (updated in _loop)
-    this._waveWipe   = 0;    // 0-1; plays before upgrade screen
+    this._waveWipe            = 0;    // 0-1; plays before upgrade screen
+    this._waveCompletionPulse = 0;    // 0-1; green flourish on objectives
 
     // ── Enemy base ────────────────────────────────────────────────────────────
     this._enemyBase        = null;  // EnemyBase instance (wave 3+)
@@ -975,6 +977,9 @@ export class Game {
     this._awaitingUpgrade = true;
     this._comboCount = 0;   // reset combo on wave clear
 
+    // Wave completion: trigger objective pulse flourish
+    this._waveCompletionPulse = 1.0;
+
     // Wave Wipe: play 750 ms animation then open upgrade screen
     this._waveWipe = 1;
     const waveSnap = { kills: this.waveKills, losses: this.waveLosses, score: this.score };
@@ -1088,6 +1093,10 @@ export class Game {
     // Combat start flash: decays in real time (very brief)
     if (this._combatStartFlash > 0)
       this._combatStartFlash = Math.max(0, this._combatStartFlash - dt);
+
+    // Wave completion pulse: decays quickly
+    if (this._waveCompletionPulse > 0)
+      this._waveCompletionPulse = Math.max(0, this._waveCompletionPulse - dt / 0.9);
 
     // Objective damage highlight rings: decay in real time
     for (const obj of this.objectives) {
@@ -1233,6 +1242,34 @@ export class Game {
     ctx.textAlign = 'left';
     ctx.restore();
 
+    // ── Wave completion flourish (objectives pulse green) ─────────────────────
+    if (this._waveCompletionPulse > 0) {
+      const p = this._waveCompletionPulse;                    // 1 → 0
+      const beat = Math.abs(Math.sin(p * Math.PI * 5));       // fast pulses
+      ctx.save();
+      for (const obj of this.objectives) {
+        if (obj.health <= 0) continue;
+        // Expanding ring
+        ctx.globalAlpha = beat * p * 0.55;
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth   = 3;
+        ctx.shadowColor = '#00ff88';
+        ctx.shadowBlur  = 20;
+        ctx.beginPath();
+        ctx.arc(obj.x, obj.y, 52 + (1 - p) * 28, 0, Math.PI * 2);
+        ctx.stroke();
+        // Fill glow
+        ctx.globalAlpha = beat * p * 0.12;
+        ctx.fillStyle   = '#00ff88';
+        ctx.beginPath();
+        ctx.arc(obj.x, obj.y, 52, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.shadowBlur  = 0;
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
     // ── Combo badge ───────────────────────────────────────────────────────────
     if (this._comboCount >= 3) {
       const timerFrac = Math.max(0, this._comboTimer / 2.5);  // 1 → 0
@@ -1269,6 +1306,25 @@ export class Game {
       ctx.fillRect(bX - barW / 2, bY + bH / 2 + 2, barW * timerFrac, 3);
       ctx.globalAlpha = 1;
       ctx.textAlign   = 'left';
+      ctx.restore();
+    }
+
+    // ── Combo floating multiplier (mid-screen) ────────────────────────────────
+    if (this._comboCount >= 5 && this._comboTimer > 0) {
+      const timerFrac = Math.min(1, this._comboTimer / 2.5);
+      const floatSize = 28 + Math.min(this._comboCount - 5, 10) * 2.5;
+      const floatColor = this._comboCount >= 8 ? '#ff5500'
+                       : this._comboCount >= 5 ? '#ff9900' : '#ffcc00';
+      ctx.save();
+      ctx.textAlign   = 'center';
+      ctx.globalAlpha = timerFrac * 0.85;
+      ctx.font        = `bold ${Math.round(floatSize)}px monospace`;
+      ctx.fillStyle   = floatColor;
+      ctx.shadowColor = floatColor;
+      ctx.shadowBlur  = 18 + this._comboCount;
+      ctx.fillText(`×${this._comboCount}`, W / 2, H * 0.33);
+      ctx.shadowBlur  = 0;
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
 
@@ -1675,6 +1731,32 @@ export class Game {
     ctx.shadowBlur = 12;
     ctx.fillText('⚔ العدو قادم — Space للإنطلاق الآن', W / 2, H / 2 + 80);
 
+    // Wave composition preview — show when ≤ 2s remaining
+    if (t <= 2.0) {
+      const fadeIn  = Math.min(1, (2.0 - t) / 0.4);
+      const count   = 8 + this.wave * 2;   // approximate count
+      const isBoss  = this.wave % 5 === 0;
+      const roles   = isBoss ? ['boss'] : waveComposition(this.wave, Math.min(count, 20));
+      // Build summary map
+      const summary = {};
+      for (const r of roles) summary[r] = (summary[r] ?? 0) + 1;
+      if (isBoss) summary['boss'] = 1;
+      const roleLabels = {
+        rusher: 'رشّاش', flanker: 'مُحاصِر', sniper: 'قنّاص',
+        stealth: 'خفي', kamikaze: 'انتحاري', commander: 'قائد', boss: '⚡ زعيم',
+      };
+      const parts = Object.entries(summary)
+        .map(([r, c]) => `×${c} ${roleLabels[r] ?? r}`)
+        .join('   ');
+      ctx.shadowBlur = 0;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = `rgba(255, 120, 60, ${fadeIn * 0.90})`;
+      ctx.fillText('INCOMING', W / 2, H / 2 + 108);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = `rgba(255, 200, 100, ${fadeIn * 0.75})`;
+      ctx.fillText(parts, W / 2, H / 2 + 124);
+    }
+
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.restore();
@@ -2059,15 +2141,30 @@ export class Game {
       ctx.fillText(obj._icon, mp.x + 5, mp.y + 3);
     }
 
-    // ── Enemy drones ─────────────────────────────────────────────────────
-    ctx.fillStyle = '#ff4444';
+    // ── Enemy drones (role icons) ─────────────────────────────────────────
+    const _roleIcons = {
+      rusher: '◆', flanker: '◀', sniper: '▲',
+      stealth: '◾', kamikaze: '✕', commander: '★', boss: '⬡',
+    };
     for (const e of this.enemySwarm.drones) {
-      const mp = toM(e.x, e.y);
-      ctx.globalAlpha = 0.75;
+      const mp    = toM(e.x, e.y);
+      const isBig = e.role === 'boss' || e.role === 'commander';
+      const col   = e._roleColor ?? '#ff4444';
+      ctx.globalAlpha = isBig ? 0.95 : 0.72;
+      // Dot base
+      ctx.fillStyle = col;
       ctx.beginPath();
-      ctx.arc(mp.x, mp.y, e.role === 'boss' ? 3 : 1.5, 0, Math.PI * 2);
+      ctx.arc(mp.x, mp.y, isBig ? 3 : 1.5, 0, Math.PI * 2);
       ctx.fill();
+      // Role icon (only boss/commander/sniper — others too small)
+      if (isBig || e.role === 'sniper' || e.role === 'kamikaze') {
+        ctx.font      = `bold ${isBig ? 6 : 5}px monospace`;
+        ctx.fillStyle = col;
+        ctx.textAlign = 'center';
+        ctx.fillText(_roleIcons[e.role] ?? '●', mp.x, mp.y - (isBig ? 4 : 3));
+      }
     }
+    ctx.globalAlpha = 1;
 
     // ── Player drones ─────────────────────────────────────────────────────
     ctx.fillStyle = '#00ccff';
