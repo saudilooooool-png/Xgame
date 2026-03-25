@@ -92,6 +92,32 @@ export class RadarSweep {
   }
 
   /**
+   * Force-reveal entities within `radius` pixels of (cx, cy).
+   * Used by Focus Pulse sonar charge.
+   * @param {object[]} entities
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} radius
+   */
+  forceRevealRadius(entities, cx, cy, radius) {
+    const r2 = radius * radius;
+    for (const e of entities) {
+      if (e.dead) continue;
+      const dx = e.x - cx, dy = e.y - cy;
+      if (dx * dx + dy * dy > r2) continue;
+      const isEnemy = e.type === 'enemy';
+      const color   = isEnemy ? '#ff4444' : (e._teamColor ?? '#00ccff');
+      const shape   = isEnemy ? 'circle'  : (e._radarShape ?? 'circle');
+      const size    = (e.role === 'boss' || e.role === 'commander' || e.role === 'base') ? 6.0
+                    : e.role === 'kamikaze' ? 4.5
+                    : 3.5;
+      const alreadyKnown = this._blips.has(e);
+      this._blips.set(e, { x: e.x, y: e.y, age: 0, color, shape, size, vet: e._vet ?? 0 });
+      if (!alreadyKnown) this._pings.push({ x: e.x, y: e.y, age: 0, color });
+    }
+  }
+
+  /**
    * Returns true if the sweep arm moved from prevAngle to currAngle
    * (clockwise) and crossed entityAngle in that arc.
    */

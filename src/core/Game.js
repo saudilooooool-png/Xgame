@@ -92,8 +92,11 @@ export class Game {
       if (e.key === 'Tab')                         { e.preventDefault(); this._toggleGroup(); }
       if (e.key === 's' || e.key === 'S')         this._splitOrMergeGroups();
       if (e.code === 'Space' || e.key === 'Enter') this._skipDeployment();
-      if (e.key === 'e' || e.key === 'E')         this._toggleEmpMode();
+      if (e.key === 'x' || e.key === 'X')         this._toggleEmpMode();
       if (e.key === 'g' || e.key === 'G')         this._toggleTowerMode();
+      if (e.key === 'q' || e.key === 'Q')         this._useSonarCharge('sweep');
+      if (e.key === 'w' || e.key === 'W')         this._useSonarCharge('focus');
+      if (e.key === 'f' || e.key === 'F')         this._useSonarCharge('stealth');
       // Quick menu & its number selections
       if (e.key === 'r' || e.key === 'R')         this._toggleQuickMenu();
       if (this._quickMenuOpen) {
@@ -147,6 +150,13 @@ export class Game {
     this._orbitalScan      = 0;     // seconds remaining; when >0 all enemies visible
     this.ORBITAL_SCAN_COST = 200;   // score cost
     this.ORBITAL_SCAN_DUR  = 4;     // seconds of full reveal
+
+    // ── Sonar Warfare charges ─────────────────────────────────────────────────
+    this._sonarCharges    = 0;      // stored charges (0–3)
+    this.SONAR_MAX        = 3;
+    this._sonarFullSweep  = 0;      // seconds remaining: Full Sweep effect
+    this._sonarFocusPulse = null;   // { x, y, ttl, maxTtl } active Focus Pulse
+    this._sonarStealthDet = 0;      // seconds remaining: Stealth Detect effect
 
     // ── Quick actions menu ────────────────────────────────────────────────────
     this._quickMenuOpen    = false;
@@ -223,6 +233,10 @@ export class Game {
     this._enemyBase        = null;
     this._baseBonusWaves   = 0;
     this._orbitalScan      = 0;
+    this._sonarCharges     = 0;
+    this._sonarFullSweep   = 0;
+    this._sonarFocusPulse  = null;
+    this._sonarStealthDet  = 0;
     this._quickMenuOpen    = false;
     this._scoutIntro       = null;
     this._objectiveTier    = 0;
@@ -387,6 +401,8 @@ export class Game {
     this._empTraps   = [];
     this._empMode    = false;
     this._empCharges = 3 + Math.floor(this.wave / 5);
+    // Clear active sonar effects on wave start (charges persist)
+    this._sonarFocusPulse = null;
 
     this.hazards = generateHazards(
       this.wave, this.canvas.width, this.canvas.height,
@@ -607,6 +623,32 @@ export class Game {
       const revealTargets = [...this.enemySwarm.drones];
       if (this._enemyBase && !this._enemyBase.dead) revealTargets.push(this._enemyBase);
       this.radarSweep.forceReveal(revealTargets);
+    }
+
+    // ── Sonar Warfare: Full Sweep ──────────────────────────────────────────
+    if (this._sonarFullSweep > 0) {
+      this._sonarFullSweep -= dt;
+      const sweepTargets = [...this.enemySwarm.drones];
+      if (this._enemyBase && !this._enemyBase.dead) sweepTargets.push(this._enemyBase);
+      this.radarSweep.forceReveal(sweepTargets);
+    }
+
+    // ── Sonar Warfare: Focus Pulse ─────────────────────────────────────────
+    if (this._sonarFocusPulse) {
+      this._sonarFocusPulse.ttl -= dt;
+      const fp = this._sonarFocusPulse;
+      const pulseTargets = [...this.enemySwarm.drones];
+      if (this._enemyBase && !this._enemyBase.dead) pulseTargets.push(this._enemyBase);
+      this.radarSweep.forceRevealRadius(pulseTargets, fp.x, fp.y, 160);
+      if (fp.ttl <= 0) this._sonarFocusPulse = null;
+    }
+
+    // ── Sonar Warfare: Stealth Detect ─────────────────────────────────────
+    if (this._sonarStealthDet > 0) {
+      this._sonarStealthDet -= dt;
+      const stealthTargets = this.enemySwarm.drones.filter(d => d.role === 'stealth' && !d.dead);
+      for (const d of stealthTargets) d._revealed = true;
+      this.radarSweep.forceReveal(stealthTargets);
     }
 
     // ── Radar sweep ───────────────────────────────────────────────────
@@ -936,6 +978,30 @@ export class Game {
     }
   }
 
+  // ── Sonar Warfare ─────────────────────────────────────────────────────────
+
+  /**
+   * Consume one sonar charge and activate the requested effect.
+   * type: 'sweep' | 'focus' | 'stealth'
+   */
+  _useSonarCharge(type) {
+    if (this._sonarCharges <= 0) {
+      this._showAlert('⚡ لا توجد شحنات رادار');
+      return;
+    }
+    this._sonarCharges--;
+    if (type === 'sweep') {
+      this._sonarFullSweep = 3;
+      this._showAlert('📡 مسح شامل — كشف كامل 3s');
+    } else if (type === 'focus') {
+      this._sonarFocusPulse = { x: this._mouseX, y: this._mouseY, ttl: 3, maxTtl: 3 };
+      this._showAlert('🔍 نبضة تركيز نشطة');
+    } else if (type === 'stealth') {
+      this._sonarStealthDet = 8;
+      this._showAlert('👁 كشف التخفي — 8s');
+    }
+  }
+
   // ── Wave complete ──────────────────────────────────────────────────────────
 
   _checkWaveComplete() {
@@ -959,6 +1025,10 @@ export class Game {
       if (this._streak > this._maxStreak) this._maxStreak = this._streak;
       if (this._streak >= 2) {
         this._showAlert(`🔥 سلسلة مثالية ×${this._streak}!`);
+      }
+      // Perfect wave earns a sonar charge (capped at max)
+      if (this._sonarCharges < this.SONAR_MAX) {
+        this._sonarCharges++;
       }
     } else {
       this._streak = 0;
@@ -1415,7 +1485,7 @@ export class Game {
       ctx.font = '9px monospace';
       ctx.textAlign = 'left';
       ctx.fillStyle = '#00d4ff';
-      ctx.fillText('E = EMP', 18, empY + 12);
+      ctx.fillText('X = EMP', 18, empY + 12);
     }
 
     // ── Tower HUD badge ───────────────────────────────────────────────────────
@@ -1450,6 +1520,46 @@ export class Game {
       ctx.textAlign = 'left';
       ctx.fillStyle = '#ffcc00';
       ctx.fillText('G = برج', 18, towerY + 12);
+    }
+
+    // ── Sonar Warfare HUD ─────────────────────────────────────────────────────
+    const sonarY = towerY + 30;
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(80,200,255,0.60)';
+    ctx.fillText('SNR', 18, sonarY);
+    for (let i = 0; i < this.SONAR_MAX; i++) {
+      const filled = i < this._sonarCharges;
+      ctx.fillStyle   = filled ? 'rgba(0,200,255,0.90)' : 'rgba(0,60,90,0.40)';
+      ctx.shadowColor = filled ? '#00ccff' : 'transparent';
+      ctx.shadowBlur  = filled ? 6 : 0;
+      ctx.beginPath();
+      ctx.arc(48 + i * 14, sonarY - 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    if (this._sonarFullSweep > 0) {
+      const pulse3 = 0.6 + 0.4 * Math.sin(Date.now() / 180);
+      ctx.globalAlpha = pulse3;
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#00ccff';
+      ctx.fillText(`Q ${this._sonarFullSweep.toFixed(1)}s`, 18, sonarY + 12);
+    } else if (this._sonarFocusPulse) {
+      ctx.globalAlpha = 0.75;
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#00ccff';
+      ctx.fillText(`W ${this._sonarFocusPulse.ttl.toFixed(1)}s`, 18, sonarY + 12);
+    } else if (this._sonarStealthDet > 0) {
+      ctx.globalAlpha = 0.75;
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#00ccff';
+      ctx.fillText(`F ${this._sonarStealthDet.toFixed(1)}s`, 18, sonarY + 12);
+    } else if (this._sonarCharges > 0) {
+      ctx.globalAlpha = 0.38;
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#88ddff';
+      ctx.fillText('Q/W/F', 18, sonarY + 12);
     }
 
     ctx.globalAlpha = 1;
@@ -1551,6 +1661,23 @@ export class Game {
     }
     this.particles.draw(ctx);
 
+    // Focus Pulse ring overlay (world-space)
+    if (this._sonarFocusPulse) {
+      const fp = this._sonarFocusPulse;
+      const frac = fp.ttl / fp.maxTtl;
+      ctx.save();
+      ctx.strokeStyle = `rgba(0,200,255,${0.45 * frac})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#00ccff';
+      ctx.shadowBlur  = 12 * frac;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.arc(fp.x, fp.y, 160, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
     ctx.restore();
 
     // 3. Radar sweep overlay (fixed — not shaken)
@@ -1570,6 +1697,14 @@ export class Game {
       ctx.save();
       ctx.globalAlpha = 0.07;
       ctx.fillStyle = '#ffdd00';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+    // Sonar Full Sweep tint
+    if (this._sonarFullSweep > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.04;
+      ctx.fillStyle = '#00ccff';
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
@@ -1603,6 +1738,9 @@ export class Game {
     if (this._quickMenuOpen) this._drawQuickMenu(ctx, W, H);
     // Orbital scan HUD indicator
     if (this._orbitalScan > 0)  this._drawOrbitalScanHUD(ctx, W, H);
+    // Sonar active effect HUD indicators
+    if (this._sonarFullSweep > 0)  this._drawSonarActiveHUD(ctx, W, H, 'sweep');
+    if (this._sonarStealthDet > 0) this._drawSonarActiveHUD(ctx, W, H, 'stealth');
   }
 
   _drawCityConnections() {
@@ -1970,6 +2108,46 @@ export class Game {
     ctx.fillStyle = '#00ffcc';
     ctx.fillText('🛰', cx, cy + 4);
     ctx.fillText(`${this._orbitalScan.toFixed(1)}s`, cx, cy + 16);
+
+    ctx.globalAlpha = 1;
+    ctx.textAlign   = 'left';
+    ctx.restore();
+  }
+
+  // ── Sonar active effect HUD (top-right, stacked below orbital scan) ──────
+
+  _drawSonarActiveHUD(ctx, W, H, type) {
+    const offset = type === 'stealth' ? 90 : 50;  // stack below orbital scan
+    const cx = W - 36, cy = offset, r = 14;
+    const ttl = type === 'sweep' ? this._sonarFullSweep : this._sonarStealthDet;
+    const dur = type === 'sweep' ? 3 : 8;
+    const frac = Math.max(0, ttl / dur);
+    const alpha = Math.min(1, ttl * 2);
+    const color = '#00ccff';
+
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+
+    ctx.strokeStyle = 'rgba(0,200,255,0.20)';
+    ctx.lineWidth   = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 8;
+    ctx.lineWidth   = 2.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+    ctx.fillText(type === 'sweep' ? '📡' : '👁', cx, cy + 4);
+    ctx.fillText(`${ttl.toFixed(1)}s`, cx, cy + 15);
 
     ctx.globalAlpha = 1;
     ctx.textAlign   = 'left';
