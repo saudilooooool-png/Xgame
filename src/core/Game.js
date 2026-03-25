@@ -76,7 +76,8 @@ export class Game {
     this._playerIdentity = null;
 
     // ── Deployment phase (before enemies spawn each wave) ─────────────────────
-    this._deploymentPhase = 0;
+    this._deploymentPhase   = 0;
+    this._combatStartFlash  = 0;  // brief white flash when combat begins
 
     // ── Side missions ─────────────────────────────────────────────────────────
     this._sideMission           = null;   // active SideMission instance
@@ -433,7 +434,8 @@ export class Game {
 
   _skipDeployment() {
     if (this._deploymentPhase <= 0) return;
-    this._deploymentPhase = 0;
+    this._deploymentPhase   = 0;
+    this._combatStartFlash  = 0.18;
     this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
     this._pendingEnemyOverride = undefined;
     this._showAlert('⚔ الهجوم!');
@@ -488,7 +490,8 @@ export class Game {
       const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
       this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
       if (this._deploymentPhase <= 0) {
-        this._deploymentPhase = 0;
+        this._deploymentPhase  = 0;
+        this._combatStartFlash = 0.18;
         this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
         this._pendingEnemyOverride = undefined;
         this._showAlert('⚔ الهجوم!');
@@ -817,6 +820,12 @@ export class Game {
         this.waveLosses++;
         this.totalLosses++;
         this._hitFlash = Math.min(1, this._hitFlash + 0.45);
+        // Drone-loss popup: shows at kill location
+        this._scorePopups.push({
+          x: target.x, y: target.y,
+          text: '−١ مسيّرة', ttl: 1.0, maxTtl: 1.0,
+          color: '#4488ff',
+        });
       }
     }
 
@@ -841,6 +850,7 @@ export class Game {
           // Kamikaze deals heavy explosion damage
           const hitDmg = e.role === 'kamikaze' ? 35 : 10;
           obj.health = Math.max(0, obj.health - hitDmg);
+          obj._damageHighlightTimer = 1.2;   // pulsing ring on hit
           this.shake.trigger(e.role === 'kamikaze' ? 22 : 10, e.role === 'kamikaze' ? 0.55 : 0.35);
           this.audio.objectiveHit();
           if (e.role === 'kamikaze') this._showAlert(`💥 انتحاري! ضرر مضاعف!`);
@@ -1050,6 +1060,16 @@ export class Game {
 
     // Wave wipe: decay in slowed time (looks good as part of the effect)
     if (this._waveWipe > 0) this._waveWipe = Math.max(0, this._waveWipe - dt / 0.75);
+
+    // Combat start flash: decays in real time (very brief)
+    if (this._combatStartFlash > 0)
+      this._combatStartFlash = Math.max(0, this._combatStartFlash - dt);
+
+    // Objective damage highlight rings: decay in real time
+    for (const obj of this.objectives) {
+      if ((obj._damageHighlightTimer ?? 0) > 0)
+        obj._damageHighlightTimer = Math.max(0, obj._damageHighlightTimer - dt);
+    }
   }
 
   // ── Phase-1 FX draw ────────────────────────────────────────────────────────
@@ -1069,11 +1089,38 @@ export class Game {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
+    // ── Objective damage highlight rings ──────────────────────────────────────
+    for (const obj of this.objectives) {
+      const t = obj._damageHighlightTimer ?? 0;
+      if (t <= 0) continue;
+      const frac = t / 1.2;
+      const beat = 0.4 + 0.6 * Math.sin(Date.now() / 180);
+      ctx.save();
+      ctx.globalAlpha = beat * frac * 0.55;
+      ctx.strokeStyle = '#ff6600';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#ff6600';
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(obj.x, obj.y, 62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // ── Hit flash ─────────────────────────────────────────────────────────────
     if (this._hitFlash > 0.02) {
       ctx.save();
       ctx.globalAlpha = this._hitFlash * 0.28;
       ctx.fillStyle = '#ff0000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+
+    // ── Combat start flash ────────────────────────────────────────────────────
+    if (this._combatStartFlash > 0.005) {
+      ctx.save();
+      ctx.globalAlpha = (this._combatStartFlash / 0.18) * 0.45;
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
@@ -1333,6 +1380,25 @@ export class Game {
       ghost._angle = -Math.PI / 4;
       ghost.draw(ctx, true);
     }
+    // Ghost preview for EMP placement (shows stun radius)
+    if (this._empMode) {
+      const EMP_RADIUS = 80;
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = '#00eeff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.shadowColor = '#00eeff';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(this._mouseX, this._mouseY, EMP_RADIUS, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = '#00eeff';
+      ctx.fill();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     for (const obj of this.objectives) obj.draw(ctx);
     // Draw enemy base (above objectives, below swarms)
     if (this._enemyBase) this._enemyBase.draw(ctx);
@@ -1352,6 +1418,21 @@ export class Game {
 
     // 4. FX: vignette + hit flash + score popups + kill feed
     this._drawFX(W, H);
+
+    // 4b. Mode tint: faint full-screen color when in placement mode
+    if (this._empMode) {
+      ctx.save();
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = '#00eeff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    } else if (this._towerMode) {
+      ctx.save();
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = '#ffdd00';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
 
     // 5. UI
     this.waveAnnouncer.draw(ctx, W, H);
@@ -1441,25 +1522,35 @@ export class Game {
 
     ctx.save();
 
-    // ── Progress bar at top of screen ──────────────────────────────────
-    ctx.fillStyle = 'rgba(0,255,100,0.08)';
-    ctx.fillRect(0, 0, W, 3);
-    ctx.fillStyle = t < 4 ? '#ff6600' : '#00ff88';
-    ctx.fillRect(0, 0, W * pct, 3);
+    // ── Progress bar at top of screen (8px tall, more visible) ────────
+    const barColor = t < 4 ? '#ff6600' : '#00ff88';
+    ctx.fillStyle = 'rgba(0,255,100,0.10)';
+    ctx.fillRect(0, 0, W, 8);
+    ctx.fillStyle = barColor;
+    ctx.shadowColor = barColor;
+    ctx.shadowBlur = 6;
+    ctx.fillRect(0, 0, W * pct, 8);
+    ctx.shadowBlur = 0;
 
     // ── Central countdown banner ────────────────────────────────────────
     const secs = Math.ceil(t);
     ctx.textAlign  = 'center';
-    ctx.font       = 'bold 17px monospace';
-    ctx.fillStyle  = t < 4 ? 'rgba(255,100,0,0.9)' : 'rgba(0,255,120,0.85)';
+
+    // Phase label above the timer
+    ctx.font       = 'bold 13px monospace';
+    ctx.fillStyle  = 'rgba(0,200,80,0.65)';
+    ctx.fillText('— مرحلة الانتشار —', W / 2, H - 130);
+
+    ctx.font       = 'bold 20px monospace';
+    ctx.fillStyle  = t < 4 ? 'rgba(255,100,0,0.95)' : 'rgba(0,255,120,0.90)';
     ctx.shadowColor = t < 4 ? '#ff6600' : '#00ff88';
-    ctx.shadowBlur  = 14;
-    ctx.fillText(`📍 وزّع قواتك — ${secs}s`, W / 2, H - 110);
+    ctx.shadowBlur  = 20;
+    ctx.fillText(`📍 وزّع قواتك — ${secs}s`, W / 2, H - 108);
 
     ctx.font      = '11px monospace';
-    ctx.fillStyle = 'rgba(0,200,80,0.45)';
+    ctx.fillStyle = 'rgba(0,200,80,0.50)';
     ctx.shadowBlur = 0;
-    ctx.fillText('انقر لتحريك قواتك  ·  Tab=تبديل A/B  ·  S=تقسيم  ·  Space=ابدأ الآن', W / 2, H - 90);
+    ctx.fillText('انقر لتحريك قواتك  ·  Tab=تبديل A/B  ·  S=تقسيم  ·  Space=ابدأ الآن', W / 2, H - 88);
 
     ctx.textAlign = 'left';
     ctx.restore();
