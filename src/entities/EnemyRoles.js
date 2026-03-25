@@ -105,15 +105,17 @@ export const ENEMY_ROLES = {
 export const BOSS_ROLE = {
   color: '#ffdd00',
   shadowColor: '#ffaa00',
-  hp: 450, maxHp: 450,
-  maxSpeed: 38,
-  fireRange: 170, fireDamage: 55, fireRate: 2.2,
-  scale: 2.8,
+  hp: 700, maxHp: 700,        // ×1.55 vs old 450
+  maxSpeed: 52,               // ×1.37 vs old 38
+  fireRange: 200, fireDamage: 70, fireRate: 1.8,   // was 170 / 55 / 2.2
+  scale: 3.2,                 // was 2.8
+  // Enrage threshold — applied in EnemySwarm when hp drops to ≤ 40%
+  enrageAt: 0.40,
   boids: {
-    separationRadius: 50, separationWeight: 2.0,
-    alignmentRadius: 90,  alignmentWeight: 0.3,
-    cohesionRadius: 90,   cohesionWeight: 0.2,
-    seekWeight: 1.8, maxForce: 0.30, maxSpeed: 38,
+    separationRadius: 55, separationWeight: 2.2,
+    alignmentRadius:  100, alignmentWeight: 0.3,
+    cohesionRadius:   100, cohesionWeight:  0.2,
+    seekWeight: 2.2, maxForce: 0.38, maxSpeed: 52,
   },
 };
 

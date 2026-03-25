@@ -47,6 +47,7 @@ export class EnemySwarm {
 
   spawnWave(wave, overrideCount) {
     this.spawning = true;
+    this._wave = wave;
     const isBossWave = wave % 5 === 0;
     const profile    = this.defenseProfile;
 
@@ -81,23 +82,44 @@ export class EnemySwarm {
       drone._assignedObjective = this._pickObjectiveTarget(role, wave);
     }
 
-    // Boss spawns from the top center on boss waves
+    // Boss spawns from the top center on boss waves (HP scales with boss count)
     if (isBossWave) {
+      const bossNum  = Math.floor(wave / 5);
+      const scaledBoss = {
+        ...BOSS_ROLE,
+        hp:    Math.round(BOSS_ROLE.hp    * (1 + (bossNum - 1) * 0.30)),
+        maxHp: Math.round(BOSS_ROLE.maxHp * (1 + (bossNum - 1) * 0.30)),
+        fireDamage: Math.round(BOSS_ROLE.fireDamage * (1 + (bossNum - 1) * 0.15)),
+      };
       const boss = new Drone(width / 2, -30, 'enemy');
-      this._applyConfig(boss, 'boss', BOSS_ROLE);
+      this._applyConfig(boss, 'boss', scaledBoss);
       boss._scale = BOSS_ROLE.scale;
+      boss._enraged = false;
+      boss._wave    = wave;
       boss._assignedObjective = this._pickObjectiveTarget('boss', wave);
 
       // Commander always accompanies the boss
-      const cmd = new Drone(width / 2 + 40, -60, 'enemy');
+      const cmd = new Drone(width / 2 + 50, -65, 'enemy');
       this._applyConfig(cmd, 'commander', getScaledConfig('commander', wave));
       cmd._assignedObjective = this._pickObjectiveTarget('commander', wave);
-    } else if (wave >= 6 && Math.random() < 0.30) {
-      // 30% chance of a lone commander from wave 6+
-      const x = Math.random() * width, y = -30;
-      const cmd = new Drone(x, y, 'enemy');
-      this._applyConfig(cmd, 'commander', getScaledConfig('commander', wave));
-      cmd._assignedObjective = this._pickObjectiveTarget('commander', wave);
+
+      // Extra flanker escort on boss waves 10+
+      if (wave >= 10) {
+        for (let i = 0; i < 2; i++) {
+          const fe = new Drone(width / 2 + (i === 0 ? -60 : 60), -45, 'enemy');
+          this._applyConfig(fe, 'flanker', getScaledConfig('flanker', wave));
+          fe._assignedObjective = boss._assignedObjective;
+        }
+      }
+    } else {
+      // Commander probability: 15% wave 3-4, 25% wave 5, 40% wave 6+
+      const cmdChance = wave >= 6 ? 0.40 : wave >= 5 ? 0.25 : wave >= 3 ? 0.15 : 0;
+      if (cmdChance > 0 && Math.random() < cmdChance) {
+        const x = Math.random() * width, y = -30;
+        const cmd = new Drone(x, y, 'enemy');
+        this._applyConfig(cmd, 'commander', getScaledConfig('commander', wave));
+        cmd._assignedObjective = this._pickObjectiveTarget('commander', wave);
+      }
     }
 
     this.spawning = false;
@@ -202,6 +224,39 @@ export class EnemySwarm {
       const force = computeBoidForce(drone, this.drones, drone.target, _roleBoids(drone));
       drone.update(dt, force);
       this._clampToBounds(drone);
+    }
+
+    // ── Boss enrage: triggers once when HP drops to ≤ 40% ────────────────────
+    this._justEnraged = false;
+    for (const drone of [...this.drones]) {   // snapshot so we can push safely
+      if (drone.role !== 'boss' || drone._enraged || drone.dead) continue;
+      if (drone.hp / drone.maxHp > 0.40) continue;
+
+      drone._enraged   = true;
+      drone.maxSpeed   = Math.round(drone.maxSpeed * 1.8);
+      drone.fireRate   = drone.fireRate * 0.58;   // ≈×1.7 fire frequency
+      drone._roleColor  = '#ff2200';
+      drone._roleShadow = '#ff0000';
+      this._justEnraged = true;
+
+      // Spawn 3 elite rusher escorts from the boss position
+      const cfg = getScaledConfig('rusher', drone._wave ?? 5);
+      const elite = { ...cfg, hp: Math.round(cfg.hp * 1.6), maxHp: Math.round(cfg.hp * 1.6) };
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        const r = new Drone(
+          drone.x + Math.cos(a) * 38,
+          drone.y + Math.sin(a) * 38,
+          'enemy'
+        );
+        r.role = 'rusher'; r.hp = elite.hp; r.maxHp = elite.maxHp;
+        r.maxSpeed = elite.maxSpeed; r.fireRange = elite.fireRange;
+        r.fireDamage = elite.fireDamage; r._baseFireDamage = elite.fireDamage;
+        r.fireRate = elite.fireRate; r._fireTimer = Math.random();
+        r._roleColor = '#ff5500'; r._roleShadow = '#ff3300';
+        r._assignedObjective = drone._assignedObjective;
+        this.drones.push(r);
+      }
     }
   }
 

@@ -221,6 +221,7 @@ export class Game {
     this._orbitalScan      = 0;
     this._quickMenuOpen    = false;
     this._scoutIntro       = null;
+    this._objectiveTier    = 0;
     this._alertText  = '';
     this._alertTimer = 0;
     this._clickHintTimer = 4;
@@ -264,6 +265,9 @@ export class Game {
 
   _runScoutIntro() {
     const W = this.canvas.width, H = this.canvas.height;
+
+    // Objectives start compact (tier 1) so the scout shows them in their starting positions
+    this._updateObjectivePositions(1);
 
     // Show a visual preview of the enemy base so the scout can fly over it
     this._enemyBase = new EnemyBase(W * 0.50, H * 0.06, 1);
@@ -370,6 +374,7 @@ export class Game {
 
   _nextWave() {
     this.wave++;
+    this._updateObjectivePositions(this.wave);
     this._waveDelay   = 1.5;
     this.waveKills    = 0;
     this.waveLosses   = 0;
@@ -507,6 +512,13 @@ export class Game {
 
     this.playerSwarm.update(dt, this.enemySwarm.drones);
     this.enemySwarm.update(dt, this.playerSwarm.drones);
+
+    // ── Boss enrage alert ────────────────────────────────────────────────────
+    if (this.enemySwarm._justEnraged) {
+      this._showAlert('💢 البوس هائج! سرعة مضاعفة — احذر!');
+      this.shake.trigger(0.8);
+      this.particles.explode(this.canvas.width / 2, 60, '#ff2200', 20);
+    }
 
     // ── Stun freeze: stop stunned enemies after physics update ────────────────
     for (const e of this.enemySwarm.drones) {
@@ -1298,6 +1310,7 @@ export class Game {
     this.shake.apply(ctx);
 
     this._drawCityConnections();
+    this._drawEnemyZones(ctx, W, H);
 
     // During scout intro: draw only the static world (no player/enemy swarms)
     if (this._scoutIntro) {
@@ -1362,6 +1375,8 @@ export class Game {
       this._playerIdentity?.callsign ?? ''
     );
 
+    // Mini-map overview
+    this._drawMiniMap(ctx, W, H);
     // Quick menu overlay (drawn last so it's always on top)
     if (this._quickMenuOpen) this._drawQuickMenu(ctx, W, H);
     // Orbital scan HUD indicator
@@ -1661,6 +1676,219 @@ export class Game {
 
     ctx.globalAlpha = 1;
     ctx.textAlign   = 'left';
+    ctx.restore();
+  }
+
+  // ── Progressive objective positions ──────────────────────────────────────
+
+  _updateObjectivePositions(wave) {
+    const W = this.canvas.width, H = this.canvas.height;
+
+    const TIERS = {
+      1: [                            // Waves 1-3: compact triangle — easy start
+        [W * 0.50, H * 0.33],
+        [W * 0.36, H * 0.56],
+        [W * 0.64, H * 0.56],
+      ],
+      2: [                            // Waves 4-9: medium spread — multi-front
+        [W * 0.50, H * 0.22],
+        [W * 0.24, H * 0.64],
+        [W * 0.76, H * 0.64],
+      ],
+      3: [                            // Wave 10+: full map — hard
+        [W * 0.50, H * 0.14],
+        [W * 0.14, H * 0.72],
+        [W * 0.86, H * 0.72],
+      ],
+    };
+
+    const newTier = wave >= 10 ? 3 : wave >= 4 ? 2 : 1;
+    const oldTier = this._objectiveTier ?? 0;
+
+    const pos = TIERS[newTier];
+    for (let i = 0; i < this.objectives.length; i++) {
+      if (!pos[i]) continue;
+      this.objectives[i].x = pos[i][0];
+      this.objectives[i].y = pos[i][1];
+    }
+
+    if (newTier > oldTier) {
+      this._objectiveTier = newTier;
+      if (newTier === 2) this._showAlert('⚠ الجبهة تتوسع — الأهداف تباعدت!');
+      if (newTier === 3) this._showAlert('🚨 جبهة واسعة! وزّع سربك على عدة جبهات!');
+    }
+  }
+
+  // ── Enemy spawn-zone gradient markers ────────────────────────────────────
+
+  _drawEnemyZones(ctx, W, H) {
+    // Only show during active combat phases
+    if (this._waveDelay > 0.8 || this._awaitingUpgrade) return;
+    if (this._scoutIntro) return;
+
+    const hasEnemies = this.enemySwarm.drones.length > 0;
+    const pulse  = 0.5 + 0.5 * Math.sin(Date.now() / 500);
+    const baseA  = hasEnemies ? 0.09 + 0.04 * pulse : 0.04;
+
+    ctx.save();
+
+    // Top edge — primary enemy corridor
+    const gradT = ctx.createLinearGradient(0, 0, 0, H * 0.22);
+    gradT.addColorStop(0, `rgba(255,30,30,${baseA * 2.2})`);
+    gradT.addColorStop(1, 'rgba(255,30,30,0)');
+    ctx.fillStyle = gradT;
+    ctx.fillRect(0, 0, W, H * 0.22);
+
+    // Left edge — flanker corridor
+    const gradL = ctx.createLinearGradient(0, 0, W * 0.14, 0);
+    gradL.addColorStop(0, `rgba(255,70,20,${baseA * 1.6})`);
+    gradL.addColorStop(1, 'rgba(255,70,20,0)');
+    ctx.fillStyle = gradL;
+    ctx.fillRect(0, 0, W * 0.14, H);
+
+    // Right edge — flanker corridor
+    const gradR = ctx.createLinearGradient(W, 0, W * 0.86, 0);
+    gradR.addColorStop(0, `rgba(255,70,20,${baseA * 1.6})`);
+    gradR.addColorStop(1, 'rgba(255,70,20,0)');
+    ctx.fillStyle = gradR;
+    ctx.fillRect(W * 0.86, 0, W * 0.14, H);
+
+    // Edge labels
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255,80,80,${0.35 + 0.20 * pulse})`;
+    ctx.fillText('▼ منطقة العدو', W / 2, 12);
+
+    ctx.save();
+    ctx.translate(9, H / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255,100,60,${0.28 + 0.15 * pulse})`;
+    ctx.fillText('◄ تهديد جانبي', 0, 0);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(W - 9, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255,100,60,${0.28 + 0.15 * pulse})`;
+    ctx.fillText('تهديد جانبي ►', 0, 0);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // ── Mini-map (strategic overview) ────────────────────────────────────────
+
+  _drawMiniMap(ctx, W, H) {
+    if (this._scoutIntro || this._awaitingUpgrade) return;
+
+    const mW = 140, mH = 100;
+    const mX  = W - mW - 12;
+    const mY  = H - mH - 12;
+    const sx  = mW / W;
+    const sy  = mH / H;
+    const toM = (x, y) => ({ x: mX + x * sx, y: mY + y * sy });
+
+    ctx.save();
+
+    // ── Background ────────────────────────────────────────────────────────
+    ctx.fillStyle   = 'rgba(0,8,18,0.82)';
+    ctx.strokeStyle = 'rgba(0,180,80,0.30)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.roundRect(mX - 2, mY - 16, mW + 4, mH + 18, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // Title
+    ctx.font      = 'bold 7px monospace';
+    ctx.fillStyle = 'rgba(0,220,100,0.50)';
+    ctx.textAlign = 'center';
+    ctx.fillText('خريطة الجبهات', mX + mW / 2, mY - 4);
+
+    // ── Enemy zone tint (top strip) ───────────────────────────────────────
+    ctx.globalAlpha = 0.14;
+    ctx.fillStyle   = '#ff4444';
+    ctx.fillRect(mX, mY, mW, mH * 0.22);
+
+    // ── Enemy base ────────────────────────────────────────────────────────
+    if (this._enemyBase && !this._enemyBase.dead) {
+      const mp  = toM(this._enemyBase.x, this._enemyBase.y);
+      const col = this._enemyBase._shielded ? '#4488ff' : '#ff6600';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle   = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur  = 6;
+      ctx.fillRect(mp.x - 3, mp.y - 3, 6, 6);
+      ctx.shadowBlur  = 0;
+    }
+
+    // ── Objectives ────────────────────────────────────────────────────────
+    ctx.globalAlpha = 1;
+    for (const obj of this.objectives) {
+      const mp  = toM(obj.x, obj.y);
+      const hp  = obj.health / obj.maxHealth;
+      const col = obj.health <= 0 ? '#ff3333'
+                : hp > 0.50 ? '#00ff88' : '#ffaa00';
+      ctx.fillStyle   = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur  = 7;
+      ctx.beginPath();
+      ctx.arc(mp.x, mp.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+      ctx.font        = '7px sans-serif';
+      ctx.fillStyle   = col;
+      ctx.textAlign   = 'left';
+      ctx.fillText(obj._icon, mp.x + 5, mp.y + 3);
+    }
+
+    // ── Enemy drones ─────────────────────────────────────────────────────
+    ctx.fillStyle = '#ff4444';
+    for (const e of this.enemySwarm.drones) {
+      const mp = toM(e.x, e.y);
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      ctx.arc(mp.x, mp.y, e.role === 'boss' ? 3 : 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ── Player drones ─────────────────────────────────────────────────────
+    ctx.fillStyle = '#00ccff';
+    for (const d of this.playerSwarm.drones) {
+      if (d.dead) continue;
+      const mp = toM(d.x, d.y);
+      ctx.globalAlpha = 0.80;
+      ctx.beginPath();
+      ctx.arc(mp.x, mp.y, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // ── Radar sweep line (mini) ───────────────────────────────────────────
+    const mc  = toM(W / 2, H / 2);
+    const mR  = Math.sqrt(mW * mW + mH * mH);
+    ctx.strokeStyle = 'rgba(0,255,100,0.35)';
+    ctx.lineWidth   = 1;
+    ctx.shadowColor = '#00ff66';
+    ctx.shadowBlur  = 3;
+    ctx.beginPath();
+    ctx.moveTo(mc.x, mc.y);
+    ctx.lineTo(
+      mc.x + Math.cos(this.radarSweep.angle) * mR,
+      mc.y + Math.sin(this.radarSweep.angle) * mR
+    );
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // ── Clip border ───────────────────────────────────────────────────────
+    ctx.strokeStyle = 'rgba(0,180,80,0.22)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.rect(mX, mY, mW, mH);
+    ctx.stroke();
+
     ctx.restore();
   }
 }

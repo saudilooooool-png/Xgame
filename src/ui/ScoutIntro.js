@@ -1,97 +1,122 @@
 /**
- * ScoutIntro — pre-mission cinematic sequence.
+ * ScoutIntro — pre-mission cinematic sequence (redesigned for clarity).
  *
- * A single scout drone flies a reconnaissance path across the battlefield:
- *   off-screen right → NE scan → enemy-base area → NW scan
- *                    → objectives overview → player-base return
+ * The scout drone flies DIRECTLY to each objective the player must protect,
+ * hovers for 2+ seconds with a labelled card, then visits the enemy base,
+ * then returns to base. This teaches the player where their goals are BEFORE
+ * the first wave starts.
  *
- * As it flies it:
- *   • Appears as a moving diamond blip on the radar (forceReveal every frame)
- *   • Fires expanding ring "pings" at each waypoint
- *   • Logs messages in a terminal-style "Joint Ops Channel" panel
+ * Flow:
+ *   enter right → OBJECTIVE 1 (card) → OBJECTIVE 2 → OBJECTIVE 3
+ *               → ENEMY BASE (warning) → return → game starts
+ *
+ * Each objective stop shows:
+ *   • A pulsing highlight ring around the objective
+ *   • A floating card: "هدف 1/3 · ⚡ الكهرباء · يجب الحماية!"
+ *   • Expanding ping ring from the drone
+ *   • Comms line logged to the panel
  *
  * Press Space / Enter to skip.
- * Returns a Promise that resolves when the sequence ends.
  */
 
 const TWO_PI = Math.PI * 2;
+const CARD_W = 200;
+const CARD_H = 70;
 
 export class ScoutIntro {
   /**
    * @param {Canvas}      canvas
    * @param {RadarSweep}  radarSweep
-   * @param {Objective[]} objectives   — drawn so the city is visible
+   * @param {Objective[]} objectives   live references — their x/y positions are used
    */
   constructor(canvas, radarSweep, objectives) {
     const W = canvas.width;
     const H = canvas.height;
 
-    // ── Waypoints ─────────────────────────────────────────────────────────────
-    // Each entry: { x, y, msg?, hover? }
-    // hover = extra pause at waypoint (seconds)
+    // ── Build waypoints from actual objective positions ────────────────────────
     this._waypoints = [
-      { x: W * 1.06, y: H * 0.44 },                                       // 0 off-screen start
-      { x: W * 0.80, y: H * 0.16, msg: '⚠ رصد حشد عدائي — الجانب الشرقي', hover: 0.5 },
-      { x: W * 0.50, y: H * 0.07, msg: '⚡ القاعدة المتقدمة مكتشفة — درع نشط',  hover: 0.7 },
-      { x: W * 0.20, y: H * 0.16, msg: '🏙 ثلاثة أهداف حيوية مؤكدة',           hover: 0.5 },
-      { x: W * 0.50, y: H * 0.45, msg: '📡 إرسال خريطة التهديد للرادار الرئيسي', hover: 0.6 },
-      { x: W * 0.50, y: H * 0.88, msg: '✅ عودة آمنة — كل الوحدات على الأهبة',  hover: 0.4 },
+      { x: W * 1.06, y: H * 0.40 },                       // 0 — start off-screen
     ];
+
+    objectives.forEach((obj, i) => {
+      this._waypoints.push({
+        x: obj.x,
+        y: obj.y,
+        hover: 2.2,
+        msg:  `📍 هدف ${i + 1}: ${obj._label} ${obj._icon}`,
+        card: {
+          num:   `هدف ${i + 1} / ${objectives.length}`,
+          icon:  obj._icon,
+          name:  obj._label,
+          note:  'يجب الحماية!',
+          color: obj._color ?? '#00ff88',
+        },
+        objRef: obj,        // reference for highlight ring
+      });
+    });
+
+    // Enemy base area (near top-center)
+    this._waypoints.push({
+      x: W * 0.50, y: H * 0.08,
+      hover: 1.8,
+      msg:  '⚡ القاعدة العدوة: درع نشط — ابحث عن نافذة هجوم',
+      card: {
+        num:   'تهديد رئيسي ⚠',
+        icon:  '⚡',
+        name:  'القاعدة المتقدمة',
+        note:  'درع يدوم 15 ثانية',
+        color: '#ff6600',
+      },
+    });
+
+    // Return to player spawn
+    this._waypoints.push({
+      x: W * 0.50, y: H * 0.87,
+      hover: 0.6,
+      msg:  '✅ عودة — استعدوا للدفاع!',
+    });
 
     // ── State ─────────────────────────────────────────────────────────────────
     this._x      = this._waypoints[0].x;
     this._y      = this._waypoints[0].y;
     this._wpIdx  = 0;
-    this._speed  = 230;    // px / s while moving
-    this._hover  = 0;      // countdown seconds at current waypoint
+    this._speed  = 240;   // px / s
+    this._hover  = 0;     // seconds remaining at current waypoint
+    this._hoverWp = null; // waypoint we are hovering at (for card draw)
 
-    this._trail   = [];    // { x, y, age }
-    this._pings   = [];    // { x, y, age }
-    this._comms   = [];    // { text, age }
+    this._trail  = [];    // { x, y, age }
+    this._pings  = [];    // { x, y, age }
+    this._comms  = [];    // { text, age }
 
-    this._timer    = 0;    // wall clock since start
-    this._endTimer = 0;    // counts after last waypoint reached
+    this._timer    = 0;
+    this._endTimer = 0;
     this._done     = false;
     this._resolve  = null;
-
     this._radar    = radarSweep;
 
-    // ── Pre-queued opening comms { text, at } ─────────────────────────────────
-    // "at" = _timer value when the message should appear
+    // Opening comms queue: { at (seconds), text }
     this._queue = [
-      { at: 0.10, text: '◌ تفعيل قناة التشغيل المشترك...' },
-      { at: 0.70, text: '◌ مزامنة مع الرادار الرئيسي...' },
-      { at: 1.30, text: '● الاتصال مؤكد  |  LINK ESTABLISHED' },
-      { at: 1.90, text: '↗ وحدة الاستطلاع في طريقها إلى المنطقة' },
+      { at: 0.10, text: '◌ تفعيل وحدة الاستطلاع...' },
+      { at: 0.75, text: '◌ ربط بالرادار الرئيسي...' },
+      { at: 1.40, text: '● الاتصال مؤكد  |  LINK ESTABLISHED' },
+      { at: 2.00, text: '↗ فحص المنطقة — تحديد الأهداف' },
     ];
-
-    // End-sequence comms (added when last waypoint is reached)
     this._endCommsAdded = false;
 
-    // Radar blip entity representing the scout
+    // Radar entity for the scout itself
     this._radarEntity = {
       x: this._x, y: this._y,
       type: 'friendly', role: 'scout', dead: false,
       _teamColor: '#00ffcc', _radarShape: 'diamond', _vet: 0,
     };
 
-    // Pre-draw title alpha
     this._titleAlpha = 0;
   }
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
-  /** Returns a Promise that resolves when the sequence finishes or is skipped. */
-  show() {
-    return new Promise(resolve => { this._resolve = resolve; });
-  }
-
-  /** Skip the intro immediately. */
-  skip() {
-    if (this._done) return;
-    this._done = true;
-    this._resolve?.();
-  }
+  show() { return new Promise(r => { this._resolve = r; }); }
+  skip() { if (!this._done) { this._done = true; this._resolve?.(); } }
 
   // ── Update ───────────────────────────────────────────────────────────────────
 
@@ -99,66 +124,62 @@ export class ScoutIntro {
     if (this._done) return;
     this._timer += dt;
 
-    // ── Title fade in/out ─────────────────────────────────────────────────────
-    if (this._timer < 1.5)      this._titleAlpha = Math.min(1, this._timer / 0.5);
-    else if (this._timer < 2.5) this._titleAlpha = Math.max(0, 1 - (this._timer - 1.5));
-    else                        this._titleAlpha = 0;
+    // Title fade
+    if (this._timer < 1.2)       this._titleAlpha = Math.min(1, this._timer / 0.5);
+    else if (this._timer < 2.2)  this._titleAlpha = Math.max(0, 1 - (this._timer - 1.2));
+    else                         this._titleAlpha = 0;
 
-    // ── Queued opening comms ──────────────────────────────────────────────────
+    // Queued comms
     while (this._queue.length && this._queue[0].at <= this._timer) {
       this._comms.push({ text: this._queue.shift().text, age: 0 });
     }
 
-    // ── Age trail / pings / comms ─────────────────────────────────────────────
+    // Age particles
     for (const pt of this._trail) pt.age += dt;
-    this._trail = this._trail.filter(t => t.age < 1.1);
+    this._trail = this._trail.filter(t => t.age < 1.0);
 
     for (const p of this._pings) p.age += dt;
     this._pings = this._pings.filter(p => p.age < 2.0);
 
     for (const c of this._comms) c.age += dt;
 
-    // ── End sequence ──────────────────────────────────────────────────────────
+    // End sequence
     if (this._wpIdx >= this._waypoints.length) {
       if (!this._endCommsAdded) {
         this._endCommsAdded = true;
-        this._comms.push({ text: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', age: 0 });
-        this._comms.push({ text: '⚔  مهمتك: صد الهجمات وحماية المدينة', age: 0.2 });
-        this._comms.push({ text: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', age: 0.4 });
+        this._comms.push({ text: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', age: 0 });
+        this._comms.push({ text: '⚔  دافع عن المدينة — لا تسقط الأهداف', age: 0.25 });
+        this._comms.push({ text: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', age: 0.50 });
       }
       this._endTimer += dt;
-      if (this._endTimer > 2.2) {
-        this._done = true;
-        this._resolve?.();
-      }
+      if (this._endTimer > 2.4) { this._done = true; this._resolve?.(); }
       return;
     }
 
-    // ── Hover at waypoint ─────────────────────────────────────────────────────
+    // Hover at waypoint
     if (this._hover > 0) {
       this._hover -= dt;
-      this._trail.push({ x: this._x, y: this._y, age: 0 });  // still emit trail dots
+      this._trail.push({ x: this._x, y: this._y, age: 0 });
       this._radarEntity.x = this._x;
       this._radarEntity.y = this._y;
       this._radar.forceReveal([this._radarEntity]);
       return;
     }
 
-    // ── Move toward next waypoint ─────────────────────────────────────────────
+    // Move toward next waypoint
     const wp   = this._waypoints[this._wpIdx];
     const dx   = wp.x - this._x;
     const dy   = wp.y - this._y;
     const dist = Math.sqrt(dx * dx + dy * dy) || 0.001;
 
-    if (dist < 10) {
-      // Arrived
-      this._x = wp.x;
-      this._y = wp.y;
-      if (wp.msg) {
-        this._comms.push({ text: wp.msg, age: 0 });
+    if (dist < 12) {
+      this._x = wp.x; this._y = wp.y;
+      if (wp.msg)  this._comms.push({ text: wp.msg, age: 0 });
+      if (wp.card || wp.hover > 0) {
         this._pings.push({ x: this._x, y: this._y, age: 0 });
+        this._hoverWp = wp;
+        this._hover   = wp.hover ?? 0;
       }
-      this._hover = wp.hover ?? 0;
       this._wpIdx++;
     } else {
       const step = Math.min(dist, this._speed * dt);
@@ -167,7 +188,6 @@ export class ScoutIntro {
       this._trail.push({ x: this._x, y: this._y, age: 0 });
     }
 
-    // Keep radar blip current
     this._radarEntity.x = this._x;
     this._radarEntity.y = this._y;
     this._radar.forceReveal([this._radarEntity]);
@@ -176,66 +196,104 @@ export class ScoutIntro {
   // ── Draw ─────────────────────────────────────────────────────────────────────
 
   draw(ctx, W, H) {
-    // Global fade-out during end sequence
     const endFade = this._wpIdx >= this._waypoints.length
-      ? Math.max(0, 1 - (this._endTimer - 1.2) / 1.0)
+      ? Math.max(0, 1 - (this._endTimer - 1.0) / 1.4)
       : 1;
 
     ctx.save();
 
-    // ── Mission title (fades in/out at start) ─────────────────────────────────
+    // ── Mission title ─────────────────────────────────────────────────────────
     if (this._titleAlpha > 0.01) {
       ctx.globalAlpha = this._titleAlpha * endFade;
-      ctx.font        = 'bold 22px monospace';
+      ctx.font        = 'bold 24px monospace';
       ctx.textAlign   = 'center';
       ctx.fillStyle   = '#00ffcc';
       ctx.shadowColor = '#00ffcc';
-      ctx.shadowBlur  = 20;
-      ctx.fillText('تقرير استطلاعي', W / 2, H / 2 - 16);
-      ctx.shadowBlur = 0;
-      ctx.font       = '11px monospace';
-      ctx.globalAlpha = this._titleAlpha * 0.55 * endFade;
-      ctx.fillStyle  = '#88ddcc';
-      ctx.fillText('ADVANCE SCOUT REPORT  ·  قبل الهجوم', W / 2, H / 2 + 10);
-      ctx.textAlign  = 'left';
+      ctx.shadowBlur  = 22;
+      ctx.fillText('مهمة استطلاعية', W / 2, H / 2 - 20);
+      ctx.shadowBlur  = 0;
+      ctx.font        = '12px monospace';
+      ctx.globalAlpha = this._titleAlpha * 0.6 * endFade;
+      ctx.fillStyle   = '#88ddcc';
+      ctx.fillText('ADVANCE RECON  ·  تحديد الأهداف', W / 2, H / 2 + 8);
+      ctx.textAlign   = 'left';
     }
 
     ctx.globalAlpha = endFade;
 
+    // ── Objective highlight ring (while hovering at an objective) ─────────────
+    if (this._hover > 0 && this._hoverWp?.card) {
+      const wp   = this._hoverWp;
+      const col  = wp.card.color ?? '#00ffcc';
+      const beat = 0.5 + 0.5 * Math.sin(Date.now() / 340);
+
+      // Large pulsing ring around the objective
+      ctx.globalAlpha = (0.35 + 0.25 * beat) * endFade;
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 2.5;
+      ctx.shadowColor = col;
+      ctx.shadowBlur  = 18;
+      ctx.beginPath();
+      ctx.arc(wp.x, wp.y, 50 + 8 * beat, 0, TWO_PI);
+      ctx.stroke();
+
+      // Inner ring
+      ctx.globalAlpha = (0.55 + 0.20 * beat) * endFade;
+      ctx.lineWidth   = 1.5;
+      ctx.shadowBlur  = 10;
+      ctx.beginPath();
+      ctx.arc(wp.x, wp.y, 30, 0, TWO_PI);
+      ctx.stroke();
+      ctx.shadowBlur  = 0;
+
+      // Arrow line from card to objective
+      const cardCX = W / 2;
+      const cardBY = H / 2 + CARD_H / 2 + 14;
+      ctx.globalAlpha = 0.35 * endFade;
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.moveTo(cardCX, cardBY);
+      ctx.lineTo(wp.x, wp.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Objective card
+      this._drawObjectiveCard(ctx, W, H, wp.card, endFade);
+    }
+
     // ── Trail ─────────────────────────────────────────────────────────────────
     for (const pt of this._trail) {
-      const f = 1 - pt.age / 1.1;
-      ctx.globalAlpha = f * 0.55 * endFade;
+      const f = 1 - pt.age;
+      ctx.globalAlpha = f * 0.50 * endFade;
       ctx.fillStyle   = '#00ffcc';
       ctx.shadowColor = '#00ffcc';
-      ctx.shadowBlur  = 7;
+      ctx.shadowBlur  = 6;
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 2.5 * f + 0.5, 0, TWO_PI);
+      ctx.arc(pt.x, pt.y, 2.5 * f + 0.4, 0, TWO_PI);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
 
-    // ── Waypoint ping rings ───────────────────────────────────────────────────
+    // ── Ping rings ────────────────────────────────────────────────────────────
     for (const p of this._pings) {
       const t = p.age / 2.0;
-      const r = 6 + t * 80;
-      ctx.globalAlpha = (1 - t) * 0.65 * endFade;
+      ctx.globalAlpha = (1 - t) * 0.60 * endFade;
       ctx.strokeStyle = '#00ffcc';
       ctx.lineWidth   = 1.5;
       ctx.shadowColor = '#00ffcc';
       ctx.shadowBlur  = 12;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, TWO_PI);
+      ctx.arc(p.x, p.y, 8 + t * 80, 0, TWO_PI);
       ctx.stroke();
     }
     ctx.shadowBlur = 0;
 
-    // ── Scout drone (diamond) ─────────────────────────────────────────────────
+    // ── Scout drone (diamond shape) ───────────────────────────────────────────
     if (this._wpIdx < this._waypoints.length) {
-      const r   = 9;
-      const blink = this._hover > 0
-        ? (Math.sin(Date.now() / 120) > 0 ? 1 : 0.55)
-        : 1;
+      const r     = 9;
+      const blink = this._hover > 0 ? (Math.sin(Date.now() / 110) > 0 ? 1 : 0.5) : 1;
       ctx.globalAlpha = blink * endFade;
       ctx.fillStyle   = '#00ffcc';
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -243,16 +301,16 @@ export class ScoutIntro {
       ctx.shadowColor = '#00ffcc';
       ctx.shadowBlur  = 24;
       ctx.beginPath();
-      ctx.moveTo(this._x,         this._y - r * 1.5);
-      ctx.lineTo(this._x + r,     this._y);
-      ctx.lineTo(this._x,         this._y + r * 1.5);
-      ctx.lineTo(this._x - r,     this._y);
+      ctx.moveTo(this._x,     this._y - r * 1.5);
+      ctx.lineTo(this._x + r, this._y);
+      ctx.lineTo(this._x,     this._y + r * 1.5);
+      ctx.lineTo(this._x - r, this._y);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      ctx.globalAlpha = 0.75 * endFade;
+      ctx.globalAlpha = 0.72 * endFade;
       ctx.font        = 'bold 8px monospace';
       ctx.textAlign   = 'center';
       ctx.fillStyle   = '#00ffcc';
@@ -260,72 +318,116 @@ export class ScoutIntro {
       ctx.textAlign   = 'left';
     }
 
-    // ── Joint Ops comms panel (bottom-left) ───────────────────────────────────
+    // ── Comms panel ───────────────────────────────────────────────────────────
     this._drawCommsPanel(ctx, W, H, endFade);
 
     // ── Skip hint ─────────────────────────────────────────────────────────────
-    if (endFade > 0.2) {
-      ctx.globalAlpha = 0.28 * endFade;
-      ctx.font        = '9px monospace';
-      ctx.textAlign   = 'right';
-      ctx.fillStyle   = '#aaaaaa';
-      ctx.fillText('[Space / Enter] تخطي المقدمة', W - 16, H - 14);
-      ctx.textAlign   = 'left';
-    }
+    ctx.globalAlpha = 0.28 * endFade;
+    ctx.font        = '9px monospace';
+    ctx.textAlign   = 'right';
+    ctx.fillStyle   = '#aaaaaa';
+    ctx.fillText('[Space / Enter] تخطي', W - 14, H - 14);
+    ctx.textAlign   = 'left';
 
     ctx.globalAlpha = 1;
     ctx.restore();
   }
 
+  // ── Objective card (center-screen, shown while hovering at a target) ─────────
+
+  _drawObjectiveCard(ctx, W, H, card, masterAlpha) {
+    const cX = W / 2;
+    const cY = H / 2 - 10;
+
+    ctx.save();
+    ctx.globalAlpha = masterAlpha * 0.94;
+
+    // Shadow backdrop
+    ctx.fillStyle   = 'rgba(0,8,20,0.90)';
+    ctx.strokeStyle = card.color;
+    ctx.lineWidth   = 1.5;
+    ctx.shadowColor = card.color;
+    ctx.shadowBlur  = 16;
+    ctx.beginPath();
+    ctx.roundRect(cX - CARD_W / 2, cY - CARD_H / 2, CARD_W, CARD_H, 6);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Num label (top)
+    ctx.font        = 'bold 9px monospace';
+    ctx.textAlign   = 'center';
+    ctx.fillStyle   = card.color;
+    ctx.globalAlpha = 0.75 * masterAlpha;
+    ctx.fillText(card.num, cX, cY - CARD_H / 2 + 14);
+
+    // Icon + name (center)
+    ctx.globalAlpha = masterAlpha;
+    ctx.font        = 'bold 15px monospace';
+    ctx.fillStyle   = '#ffffff';
+    ctx.fillText(`${card.icon}  ${card.name}`, cX, cY + 4);
+
+    // Note (bottom)
+    ctx.font        = '11px monospace';
+    ctx.fillStyle   = card.color;
+    ctx.globalAlpha = 0.90 * masterAlpha;
+    ctx.fillText(card.note, cX, cY + CARD_H / 2 - 10);
+
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  // ── Comms terminal panel (bottom-left) ──────────────────────────────────────
+
   _drawCommsPanel(ctx, W, H, masterAlpha) {
-    const MAX  = 7;
-    const lh   = 17;
-    const pX   = 14;
-    const pW   = 340;
+    const MAX = 6;
+    const lh  = 17;
+    const pX  = 14;
+    const pW  = 340;
     const lines = this._comms.slice(-MAX);
     const bodyH = lh * lines.length + 6;
     const hdrH  = 20;
     const totH  = bodyH + hdrH + 10;
-    const pY    = H - 20;  // bottom of panel
+    const pY    = H - 20;
 
-    // Panel background
+    ctx.save();
+
+    // Background
     ctx.globalAlpha = 0.90 * masterAlpha;
     ctx.fillStyle   = 'rgba(0,8,20,0.88)';
-    ctx.strokeStyle = 'rgba(0,255,180,0.20)';
+    ctx.strokeStyle = 'rgba(0,255,180,0.18)';
     ctx.lineWidth   = 1;
     ctx.beginPath();
     ctx.roundRect(pX - 8, pY - totH, pW + 16, totH + 4, 5);
     ctx.fill();
     ctx.stroke();
 
-    // Header bar
-    ctx.fillStyle = 'rgba(0,255,180,0.08)';
+    // Header tint
+    ctx.fillStyle = 'rgba(0,255,180,0.07)';
     ctx.fillRect(pX - 8, pY - totH, pW + 16, hdrH);
 
-    ctx.globalAlpha = 0.55 * masterAlpha;
+    ctx.globalAlpha = 0.52 * masterAlpha;
     ctx.font        = 'bold 8px monospace';
     ctx.fillStyle   = '#00ffcc';
     ctx.fillText('▌ قناة التشغيل المشترك  ·  JOINT OPS CHANNEL', pX, pY - totH + 13);
 
-    // Comms lines
+    // Lines
     lines.forEach((c, i) => {
-      const isLast  = i === lines.length - 1;
-      const fadeIn  = Math.min(1, c.age * 5);
-      ctx.globalAlpha = fadeIn * (isLast ? 0.95 : 0.72) * masterAlpha;
-
-      const isSep   = c.text.startsWith('━');
-      ctx.font      = isSep ? '8px monospace' : '11px monospace';
-      ctx.fillStyle = isLast && !isSep ? '#00ffee'
-                    : isSep            ? 'rgba(0,200,160,0.4)'
-                    : c.text.startsWith('●') ? '#88ffcc'
-                    : c.text.startsWith('⚔') ? '#ffcc44'
-                    : '#55bbaa';
-
+      const isLast = i === lines.length - 1;
+      const isSep  = c.text.startsWith('━');
+      const fadeIn = Math.min(1, c.age * 5);
+      ctx.globalAlpha = fadeIn * (isLast ? 0.95 : 0.70) * masterAlpha;
+      ctx.font        = isSep ? '8px monospace' : '11px monospace';
+      ctx.fillStyle   = isLast && !isSep ? '#00ffee'
+                      : isSep            ? 'rgba(0,200,160,0.35)'
+                      : c.text.startsWith('●') ? '#88ffcc'
+                      : c.text.startsWith('⚔') ? '#ffcc44'
+                      : '#55bbaa';
       const lineY = pY - bodyH + i * lh + lh - 4;
       ctx.fillText(c.text, pX, lineY);
 
-      // Blinking cursor on the newest line while it's fresh
-      if (isLast && c.age < 1.8 && Math.sin(Date.now() / 220) > 0) {
+      // Blinking cursor on newest line
+      if (isLast && c.age < 1.6 && Math.sin(Date.now() / 220) > 0) {
         const tw = ctx.measureText(c.text).width;
         ctx.globalAlpha = 0.85 * masterAlpha;
         ctx.fillStyle   = '#00ffcc';
@@ -334,5 +436,6 @@ export class ScoutIntro {
     });
 
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 }
