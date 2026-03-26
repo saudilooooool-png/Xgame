@@ -27,6 +27,7 @@ import { generateSideMission } from '../events/SideMission.js';
 import { EmpTrap } from '../entities/EmpTrap.js';
 import { GatlingTower } from '../entities/GatlingTower.js';
 import { EnemyBase } from '../entities/EnemyBase.js';
+import { CockpitHUD } from '../ui/CockpitHUD.js';
 
 export class Game {
   constructor() {
@@ -55,7 +56,8 @@ export class Game {
 
     this.upgradeScreen = new UpgradeScreen();
 
-    this.radarSweep = new RadarSweep();
+    this.radarSweep  = new RadarSweep();
+    this.cockpitHUD  = new CockpitHUD(this);
 
     this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
@@ -250,6 +252,7 @@ export class Game {
     this.playerSwarm.drones.length  = 0;
     this.enemySwarm.drones.length   = 0;
     this.running = true;
+    this.cockpitHUD.reset();
     this._runMissionSetup();
   }
 
@@ -678,6 +681,7 @@ export class Game {
     this._checkGameOver();
     this._updateFX(dt);
     this.commander.updateRecommendation();
+    this.cockpitHUD.update(dt);
   }
 
   // ── Side missions ─────────────────────────────────────────────────────────

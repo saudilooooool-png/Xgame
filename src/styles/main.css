@@ -71,3 +71,230 @@ button:focus { outline: none; }
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   COCKPIT HUD — military commander overlay
+   All elements are pointer-events:none so the canvas stays interactive.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shared tokens ─────────────────────────────────────────────────────── */
+:root {
+  --cf-green:   #00e87a;
+  --cf-bright:  #00ff99;
+  --cf-dim:     #00532e;
+  --cf-warn:    #ffaa00;
+  --cf-danger:  #ff3333;
+  --cf-bg:      rgba(0, 8, 4, 0.91);
+  --cf-border:  rgba(0, 232, 122, 0.18);
+  --cf-panel-w: 262px;
+  --cf-top-h:   28px;
+  --cf-font:    'Courier New', monospace;
+}
+
+/* ── Frame wrapper (top-bar + corner brackets) ─────────────────────────── */
+#cf-frame {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 200;
+  font-family: var(--cf-font);
+}
+
+/* Top bar ---------------------------------------------------------------- */
+#cf-topbar {
+  position: absolute;
+  top: 0; left: 0;
+  right: var(--cf-panel-w);
+  height: var(--cf-top-h);
+  background: var(--cf-bg);
+  border-bottom: 1px solid var(--cf-border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  color: var(--cf-green);
+  /* subtle scanline strip */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 2px,
+    rgba(0,255,120,0.03) 2px, rgba(0,255,120,0.03) 3px
+  );
+}
+
+#cf-topbar .cf-sep     { color: var(--cf-dim); }
+#cf-topbar .cf-spacer  { flex: 1; }
+#cf-topbar .cf-dim     { color: var(--cf-dim); }
+#cf-topbar .cf-mission { font-weight: bold; color: var(--cf-green); letter-spacing: 0.12em; }
+#cf-topbar #cf-wave    { color: var(--cf-bright); font-weight: bold; }
+
+/* Corner brackets -------------------------------------------------------- */
+.cf-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  opacity: 0.55;
+}
+.cf-tl { top: calc(var(--cf-top-h) + 6px); left: 6px;
+  border-top: 2px solid var(--cf-green); border-left: 2px solid var(--cf-green); }
+.cf-tr { top: calc(var(--cf-top-h) + 6px); right: calc(var(--cf-panel-w) + 6px);
+  border-top: 2px solid var(--cf-green); border-right: 2px solid var(--cf-green); }
+.cf-bl { bottom: 6px; left: 6px;
+  border-bottom: 2px solid var(--cf-green); border-left: 2px solid var(--cf-green); }
+.cf-br { bottom: 6px; right: calc(var(--cf-panel-w) + 6px);
+  border-bottom: 2px solid var(--cf-green); border-right: 2px solid var(--cf-green); }
+
+/* ── Right command panel ───────────────────────────────────────────────── */
+#cf-panel {
+  position: fixed;
+  top: 0; right: 0;
+  width: var(--cf-panel-w);
+  height: 100%;
+  background: var(--cf-bg);
+  border-left: 1px solid var(--cf-border);
+  z-index: 200;
+  pointer-events: none;
+  font-family: var(--cf-font);
+  font-size: 10px;
+  color: var(--cf-green);
+  overflow: hidden;
+  /* scanlines */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 3px,
+    rgba(0, 255, 100, 0.018) 3px, rgba(0, 255, 100, 0.018) 4px
+  );
+}
+
+.cf-panel-header {
+  height: var(--cf-top-h);
+  line-height: var(--cf-top-h);
+  text-align: center;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.18em;
+  color: var(--cf-bright);
+  border-bottom: 1px solid var(--cf-border);
+  background: rgba(0, 255, 100, 0.04);
+}
+
+/* Sections --------------------------------------------------------------- */
+.cf-section {
+  padding: 0;
+  border-bottom: 1px solid rgba(0,255,100,0.08);
+}
+
+.cf-section-label {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  color: var(--cf-dim);
+  padding: 5px 12px 2px;
+  text-transform: uppercase;
+}
+
+.cf-section-footer {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 1px solid var(--cf-border);
+  border-bottom: none;
+  background: rgba(0,0,0,0.2);
+  font-size: 9px;
+}
+
+/* Objectives ------------------------------------------------------------- */
+.cf-obj-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 12px;
+  gap: 6px;
+}
+.cf-obj-label { width: 58px; font-size: 9px; font-weight: bold; }
+.cf-obj-pct   { width: 54px; font-size: 9px; text-align: right; }
+.cf-bar-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(0,40,20,0.8);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cf-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* Squadron --------------------------------------------------------------- */
+.cf-unit-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 12px;
+  gap: 6px;
+  font-size: 9px;
+}
+.cf-unit-id   { width: 52px; font-weight: bold; }
+.cf-unit-cnt  { color: var(--cf-dim); width: 24px; }
+.cf-unit-hp   { width: 30px; }
+.cf-unit-form { color: var(--cf-dim); font-size: 8px; }
+
+/* Threat grid ------------------------------------------------------------ */
+.cf-threat-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  align-items: flex-start;
+}
+
+.cf-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 26px);
+  grid-template-rows:    repeat(3, 22px);
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.cf-cell {
+  background: rgba(0, 30, 15, 0.6);
+  border: 1px solid rgba(0,80,40,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  color: var(--cf-dim);
+  letter-spacing: 0;
+  border-radius: 1px;
+}
+.cf-cell-cmd {
+  background: rgba(0, 80, 40, 0.35);
+  border-color: rgba(0,180,90,0.4);
+  color: var(--cf-green);
+  font-size: 6px;
+  font-weight: bold;
+}
+.cf-cell-hot {
+  background: rgba(255, 50, 0, 0.22);
+  border-color: rgba(255, 80, 0, 0.6);
+  color: #ff7744;
+  font-weight: bold;
+  font-size: 9px;
+  /* pulse glow */
+  box-shadow: 0 0 4px rgba(255,60,0,0.4) inset;
+}
+
+#cf-advisory {
+  flex: 1;
+  font-size: 9px;
+  line-height: 1.6;
+  padding-top: 2px;
+  min-height: 50px;
+}
+
+/* Colour utilities ------------------------------------------------------- */
+.cf-green  { color: var(--cf-green); }
+.cf-bright { color: var(--cf-bright); }
+.cf-dim    { color: var(--cf-dim); }
+.cf-red    { color: var(--cf-danger); }
+.cf-warn   { color: var(--cf-warn); }
