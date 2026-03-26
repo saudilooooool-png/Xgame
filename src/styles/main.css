@@ -81,16 +81,17 @@ button:focus { outline: none; }
 :root {
   --cf-green:   #00e87a;
   --cf-bright:  #00ff99;
-  --cf-dim:     #00532e;
+  --cf-dim:     #3a7a5a;
   --cf-warn:    #ffaa00;
   --cf-danger:  #ff3333;
-  --cf-bg:      rgba(0, 14, 7, 0.55);   /* glassmorphism — semi-transparent */
-  --cf-border:  rgba(0, 232, 122, 0.18);
-  --cf-glow:    0 0 0 1px rgba(0,255,140,0.10),
-                0 0 28px rgba(0,255,100,0.07) inset,
-                0 8px 32px rgba(0,0,0,0.65);
-  --cf-panel-w: 262px;
-  --cf-top-h:   28px;
+  --cf-bg:      rgba(0, 18, 9, 0.88);   /* strong dark glass — clearly visible */
+  --cf-border:  rgba(0, 232, 122, 0.55); /* much stronger border */
+  --cf-glow:    0 0 0 1px rgba(0,255,140,0.30),
+                0 0 24px rgba(0,255,100,0.12) inset,
+                -6px 0 40px rgba(0,0,0,0.85),
+                0 8px 32px rgba(0,0,0,0.80);
+  --cf-panel-w: 270px;
+  --cf-top-h:   38px;
   --cf-font:    'Courier New', monospace;
 }
 
@@ -109,23 +110,26 @@ button:focus { outline: none; }
   top: 0; left: 0;
   right: var(--cf-panel-w);
   height: var(--cf-top-h);
-  background: var(--cf-bg);
-  backdrop-filter: blur(18px) saturate(1.5);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5);
-  box-shadow: var(--cf-glow);
-  border-bottom: 1px solid var(--cf-border);
+  background: rgba(0, 22, 11, 0.92);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  box-shadow:
+    0 0 0 1px rgba(0,255,140,0.40),
+    0 2px 20px rgba(0,255,100,0.10),
+    0 4px 32px rgba(0,0,0,0.90);
+  border-bottom: 2px solid rgba(0, 232, 122, 0.60);
   display: flex;
   align-items: center;
-  padding: 0 14px;
-  gap: 10px;
-  font-size: 10px;
-  letter-spacing: 0.07em;
+  padding: 0 16px;
+  gap: 12px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
   color: var(--cf-green);
-  /* subtle scanline strip */
+  /* scanlines */
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0, transparent 2px,
-    rgba(0,255,120,0.03) 2px, rgba(0,255,120,0.03) 3px
+    rgba(0,255,120,0.04) 2px, rgba(0,255,120,0.04) 3px
   );
 }
 
@@ -138,18 +142,19 @@ button:focus { outline: none; }
 /* Corner brackets -------------------------------------------------------- */
 .cf-corner {
   position: absolute;
-  width: 26px;
-  height: 26px;
-  opacity: 0.55;
+  width: 52px;
+  height: 52px;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(0,255,140,0.50));
 }
-.cf-tl { top: calc(var(--cf-top-h) + 6px); left: 6px;
-  border-top: 2px solid var(--cf-green); border-left: 2px solid var(--cf-green); }
-.cf-tr { top: calc(var(--cf-top-h) + 6px); right: calc(var(--cf-panel-w) + 6px);
-  border-top: 2px solid var(--cf-green); border-right: 2px solid var(--cf-green); }
-.cf-bl { bottom: 6px; left: 6px;
-  border-bottom: 2px solid var(--cf-green); border-left: 2px solid var(--cf-green); }
-.cf-br { bottom: 6px; right: calc(var(--cf-panel-w) + 6px);
-  border-bottom: 2px solid var(--cf-green); border-right: 2px solid var(--cf-green); }
+.cf-tl { top: calc(var(--cf-top-h) + 8px); left: 8px;
+  border-top: 3px solid var(--cf-green); border-left: 3px solid var(--cf-green); }
+.cf-tr { top: calc(var(--cf-top-h) + 8px); right: calc(var(--cf-panel-w) + 8px);
+  border-top: 3px solid var(--cf-green); border-right: 3px solid var(--cf-green); }
+.cf-bl { bottom: 8px; left: 8px;
+  border-bottom: 3px solid var(--cf-green); border-left: 3px solid var(--cf-green); }
+.cf-br { bottom: 8px; right: calc(var(--cf-panel-w) + 8px);
+  border-bottom: 3px solid var(--cf-green); border-right: 3px solid var(--cf-green); }
 
 /* ── Right command panel ───────────────────────────────────────────────── */
 #cf-panel {
@@ -157,49 +162,57 @@ button:focus { outline: none; }
   top: 0; right: 0;
   width: var(--cf-panel-w);
   height: 100%;
-  background: var(--cf-bg);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border-left: 1px solid var(--cf-border);
-  box-shadow: var(--cf-glow);
+  background: rgba(0, 18, 9, 0.92);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border-left: 2px solid rgba(0, 232, 122, 0.60);
+  box-shadow:
+    -1px 0 0 0 rgba(0,255,140,0.15),
+    -8px 0 40px rgba(0,255,100,0.06) inset,
+    -20px 0 60px rgba(0,0,0,0.90);
   z-index: 200;
   pointer-events: none;
   font-family: var(--cf-font);
   font-size: 10px;
   color: var(--cf-green);
   overflow: hidden;
-  /* scanlines */
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0, transparent 3px,
-    rgba(0, 255, 100, 0.016) 3px, rgba(0, 255, 100, 0.016) 4px
-  );
+  /* edge glow gradient */
+  background-image:
+    linear-gradient(to right, rgba(0,255,100,0.06) 0px, transparent 4px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0, transparent 3px,
+      rgba(0, 255, 100, 0.025) 3px, rgba(0, 255, 100, 0.025) 4px
+    );
 }
 
 .cf-panel-header {
   height: var(--cf-top-h);
   line-height: var(--cf-top-h);
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: bold;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.22em;
   color: var(--cf-bright);
-  border-bottom: 1px solid var(--cf-border);
-  background: rgba(0, 255, 100, 0.04);
+  border-bottom: 2px solid rgba(0, 232, 122, 0.45);
+  background: rgba(0, 255, 100, 0.07);
+  text-shadow: 0 0 10px rgba(0,255,140,0.60);
 }
 
 /* Sections --------------------------------------------------------------- */
 .cf-section {
   padding: 0;
-  border-bottom: 1px solid rgba(0,255,100,0.08);
+  border-bottom: 1px solid rgba(0,255,100,0.18);
 }
 
 .cf-section-label {
   font-size: 8px;
-  letter-spacing: 0.14em;
-  color: var(--cf-dim);
-  padding: 5px 12px 2px;
+  letter-spacing: 0.16em;
+  color: rgba(0, 200, 100, 0.65);
+  padding: 6px 12px 3px;
   text-transform: uppercase;
+  border-left: 2px solid rgba(0,255,100,0.45);
+  margin-left: 8px;
 }
 
 .cf-section-footer {
@@ -311,9 +324,9 @@ button:focus { outline: none; }
 /* ── Spatial Radar ─────────────────────────────────────────────────────── */
 #cf-radar-wrap {
   position: fixed;
-  bottom: 36px;
+  bottom: 42px;
   /* centre in battlefield, left of right panel */
-  left: calc((100vw - var(--cf-panel-w)) / 2 - 110px);
+  left: calc((100vw - var(--cf-panel-w)) / 2 - 115px);
   pointer-events: none;
   z-index: 200;
   transform-origin: center bottom;
@@ -321,33 +334,36 @@ button:focus { outline: none; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  /* glass effect on wrap */
-  filter: drop-shadow(0 0 14px rgba(0,255,100,0.18));
+  gap: 6px;
+  filter:
+    drop-shadow(0 0 20px rgba(0,255,100,0.35))
+    drop-shadow(0 4px 30px rgba(0,0,0,0.80));
 }
 
 #cf-radar-cv {
-  width: 220px;
-  height: 155px;
+  width: 230px;
+  height: 162px;
   display: block;
-  border: 1px solid rgba(0, 220, 80, 0.40);
+  border: 2px solid rgba(0, 220, 80, 0.65);
   box-shadow:
-    0 0 12px rgba(0, 200, 80, 0.18) inset,
-    0 0 40px rgba(0, 0, 0, 0.70);
-  background: rgba(0, 6, 3, 0.82);
+    0 0 18px rgba(0, 200, 80, 0.25) inset,
+    0 0 60px rgba(0, 0, 0, 0.90),
+    0 0 12px rgba(0,255,100,0.20);
+  background: rgba(0, 8, 4, 0.94);
 }
 
 #cf-radar-label {
   font-family: var(--cf-font);
-  font-size: 8px;
-  color: rgba(0, 200, 80, 0.50);
-  letter-spacing: 0.07em;
+  font-size: 9px;
+  color: rgba(0, 220, 90, 0.80);
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   display: flex;
   gap: 8px;
   white-space: nowrap;
+  text-shadow: 0 0 8px rgba(0,255,100,0.40);
 }
-.cf-rl-sep { color: rgba(0, 200, 80, 0.22); }
+.cf-rl-sep { color: rgba(0, 200, 80, 0.40); }
 
 /* ── Command Web SVG ───────────────────────────────────────────────────── */
 #cf-web {
