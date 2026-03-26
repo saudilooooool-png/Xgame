@@ -17,7 +17,10 @@ export class CockpitHUD {
     this._born       = Date.now();
     this._throttle   = 0;
     this.radarCanvas = null;  // set in _inject()
+    this._mx         = 0;
+    this._my         = 0;
     this._inject();
+    this._initParallax();
   }
 
   // ── DOM construction ────────────────────────────────────────────────────
@@ -208,6 +211,7 @@ export class CockpitHUD {
     this._updateFooter(g);
     this._updateRadarLabel(g);
     this._updateCommandCubes(g);
+    this._updateAlertStates(g);
   }
 
   /** Draw the spatial radar onto its own canvas — call every frame for smooth sweep. */
@@ -373,6 +377,71 @@ export class CockpitHUD {
     }
   }
 
+  // ── Parallax ─────────────────────────────────────────────────────────────
+
+  _initParallax() {
+    this._mx = window.innerWidth  / 2;
+    this._my = window.innerHeight / 2;
+    let pending = false;
+
+    window.addEventListener('mousemove', (e) => {
+      this._mx = e.clientX;
+      this._my = e.clientY;
+      if (!pending) {
+        pending = true;
+        requestAnimationFrame(() => { this._applyParallax(); pending = false; });
+      }
+    });
+  }
+
+  _applyParallax() {
+    const cx = window.innerWidth  / 2;
+    const cy = window.innerHeight / 2;
+    const nx = (this._mx - cx) / cx;  // –1 … +1
+    const ny = (this._my - cy) / cy;
+
+    // Right panel — drifts opposite to mouse (far layer, 3px max)
+    const panel = document.getElementById('cf-panel');
+    if (panel) panel.style.transform =
+      `translateX(${-nx * 3}px) translateY(${-ny * 2}px)`;
+
+    // Top bar — subtle vertical drift only (1.5px max)
+    const topbar = document.getElementById('cf-topbar');
+    if (topbar) topbar.style.transform = `translateY(${-ny * 1.5}px)`;
+
+    // Corner brackets — each drifts toward its own corner (4px max)
+    //  TL=0  TR=1  BL=2  BR=3
+    const signs = [[-1,-1],[1,-1],[-1,1],[1,1]];
+    document.querySelectorAll('.cf-corner').forEach((el, i) => {
+      const [sx, sy] = signs[i] ?? [0, 0];
+      el.style.transform = `translate(${sx * nx * 4}px, ${sy * ny * 4}px)`;
+    });
+
+    // Spatial radar — moves slightly with mouse (closer layer, same direction, 6px)
+    const radar = document.getElementById('cf-radar-wrap');
+    if (radar) radar.style.transform =
+      `perspective(560px) rotateX(30deg) translateX(${nx * 6}px)`;
+  }
+
+  // ── Alert states (driven by game threat level) ────────────────────────────
+
+  _updateAlertStates(g) {
+    const enemies    = g.enemySwarm.drones.filter(d => !d.dead).length;
+    const anyCrit    = g.objectives.some(o => o.health > 0 && o.health / o.maxHealth < 0.30);
+    const highThreat = enemies > 8 || anyCrit;
+    const isBoss     = g.wave % 5 === 0 && g.wave > 0;
+
+    // Corner brackets → red pulse when high threat
+    document.querySelectorAll('.cf-corner').forEach(el =>
+      el.classList.toggle('cf-alert', highThreat));
+
+    // Top bar → orange border pulse on boss wave
+    document.getElementById('cf-topbar')?.classList.toggle('cf-boss', isBoss);
+
+    // Advisory → urgent flash when enemies present
+    document.getElementById('cf-advisory')?.classList.toggle('cf-urgent', enemies > 4);
+  }
+
   // ── Top bar ─────────────────────────────────────────────────────────────
 
   _updateTopBar(g) {
@@ -402,10 +471,12 @@ export class CockpitHUD {
       const color = pct > 0.6 ? '#00e87a' : pct > 0.3 ? '#ffaa00' : '#ff3333';
       const label = (obj._label ?? obj._type ?? '??').toUpperCase();
       const txt   = obj.health <= 0 ? 'DESTROYED' : pct <= 0.3 ? 'CRITICAL' : `${Math.floor(pct * 100)}%`;
-      return `<div class="cf-obj-row">
+      const crit       = pct > 0 && pct <= 0.30;
+      const threatened = (obj._threatCount ?? 0) > 0;
+      return `<div class="cf-obj-row${threatened ? ' cf-threatened' : ''}">
         <span class="cf-obj-label" style="color:${color}">${label}</span>
         <div class="cf-bar-track">
-          <div class="cf-bar-fill" style="width:${Math.floor(pct*100)}%;background:${color}"></div>
+          <div class="cf-bar-fill${crit ? ' cf-crit' : ''}" style="width:${Math.floor(pct*100)}%;background:${color}"></div>
         </div>
         <span class="cf-obj-pct" style="color:${color}">${txt}</span>
       </div>`;
