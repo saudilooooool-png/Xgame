@@ -106,8 +106,90 @@ export class CockpitHUD {
     radarWrap.appendChild(radarCv);
     radarWrap.appendChild(radarLabel);
     root.appendChild(radarWrap);
-
     this.radarCanvas = radarCv;
+
+    // ── 4. Command Cubes overlay ───────────────────────────────────────────
+    this._injectCommandCubes(root);
+  }
+
+  _injectCommandCubes(root) {
+    const g = this.game;
+
+    // Action cube definitions
+    const actions = [
+      { key: '1', icon: '✈✈',  label: '+5 مسيّرات\nعادية',  cost: 150,              type: 'action' },
+      { key: '2', icon: '◈◈',  label: '+3 مسيّرات\nثقيلة',  cost: 220,              type: 'action' },
+      { key: '3', icon: '⊙',   label: 'مسح مداري\n4s كشف',  cost: g.ORBITAL_SCAN_COST, type: 'action' },
+    ];
+    const sonarCubes = [
+      { key: 'Q', icon: '📡', label: 'Full Sweep\n3s كشف كامل', type: 'sonar', charge: 'sweep'   },
+      { key: 'W', icon: '◎',  label: 'Focus Pulse\nنبضة تركيز', type: 'sonar', charge: 'focus'   },
+      { key: 'F', icon: '👁', label: 'Stealth\nكشف التخفي',    type: 'sonar', charge: 'stealth' },
+    ];
+
+    const wrap = document.createElement('div');
+    wrap.id = 'cf-cubes';
+    wrap.classList.add('hidden');
+
+    const makeCube = (def) => {
+      const cube = document.createElement('div');
+      const isSonar = def.type === 'sonar';
+      cube.className = `cf-cube${isSonar ? ' cf-cube-sonar' : ''}`;
+      cube.innerHTML = `
+        <div class="cf-cube-icon">${def.icon}</div>
+        <div class="cf-cube-label">${def.label.replace(/\n/g, '<br>')}</div>
+        <div class="cf-cube-footer">
+          <span class="cf-cube-key">[${def.key}]</span>
+          ${isSonar
+            ? `<span class="cf-cube-charge" id="cc-charge-${def.charge}">⬡ 0</span>`
+            : `<span class="cf-cube-cost">${def.cost} pts</span>`}
+        </div>
+      `;
+      cube.addEventListener('click', () => {
+        if (def.type === 'action') {
+          g._quickAction(parseInt(def.key));
+        } else {
+          g._useSonarCharge(def.charge);
+          g._quickMenuOpen = false;
+          wrap.classList.add('hidden');
+        }
+      });
+      return cube;
+    };
+
+    wrap.innerHTML = `
+      <div class="cf-cubes-bg"></div>
+    `;
+
+    const panel = document.createElement('div');
+    panel.className = 'cf-cubes-panel';
+    panel.innerHTML = `<div class="cf-cubes-title">⚡ COMMAND CENTER  —  IRONHAWK</div>`;
+
+    // Action row
+    const rowA = document.createElement('div');
+    rowA.className = 'cf-cubes-row';
+    actions.forEach(def => rowA.appendChild(makeCube(def)));
+    panel.appendChild(rowA);
+
+    panel.innerHTML += `<div class="cf-cubes-divider"></div>`;
+
+    // Sonar row
+    const rowS = document.createElement('div');
+    rowS.className = 'cf-cubes-row';
+    sonarCubes.forEach(def => rowS.appendChild(makeCube(def)));
+    panel.appendChild(rowS);
+
+    panel.innerHTML += `<div class="cf-cubes-hint">[R] / [ESC] CLOSE</div>`;
+
+    // Click on backdrop closes
+    wrap.querySelector('.cf-cubes-bg').addEventListener('click', () => {
+      g._quickMenuOpen = false;
+      wrap.classList.add('hidden');
+    });
+
+    wrap.appendChild(panel);
+    root.appendChild(wrap);
+    this._cubesEl = wrap;
   }
 
   // ── Public API ──────────────────────────────────────────────────────────
@@ -125,6 +207,7 @@ export class CockpitHUD {
     this._updateThreat(g);
     this._updateFooter(g);
     this._updateRadarLabel(g);
+    this._updateCommandCubes(g);
   }
 
   /** Draw the spatial radar onto its own canvas — call every frame for smooth sweep. */
@@ -245,7 +328,50 @@ export class CockpitHUD {
     ctx.strokeRect(0, 0, W, H);
   }
 
-  reset() { this._born = Date.now(); }
+  reset() {
+    this._born = Date.now();
+    if (this._cubesEl) this._cubesEl.classList.add('hidden');
+  }
+
+  // ── Command Cubes ─────────────────────────────────────────────────────────
+
+  _updateCommandCubes(g) {
+    if (!this._cubesEl) return;
+
+    // Show/hide based on game state
+    if (g._quickMenuOpen) {
+      this._cubesEl.classList.remove('hidden');
+    } else {
+      this._cubesEl.classList.add('hidden');
+      return;
+    }
+
+    // Update affordability on action cubes
+    const COSTS = { 1: 150, 2: 220, 3: g.ORBITAL_SCAN_COST };
+    const actionCubes = this._cubesEl.querySelectorAll('.cf-cube:not(.cf-cube-sonar)');
+    actionCubes.forEach((cube, i) => {
+      const cost = COSTS[i + 1] ?? 0;
+      cube.classList.toggle('cf-cube-off', g.score < cost);
+    });
+
+    // Update sonar charge counts + affordability
+    const chargeTypes = ['sweep', 'focus', 'stealth'];
+    chargeTypes.forEach(type => {
+      const el = document.getElementById(`cc-charge-${type}`);
+      if (el) el.textContent = `⬡ ${g._sonarCharges}`;
+    });
+    const sonarCubes = this._cubesEl.querySelectorAll('.cf-cube-sonar');
+    sonarCubes.forEach(cube => {
+      cube.classList.toggle('cf-cube-off', g._sonarCharges <= 0);
+    });
+
+    // Update callsign in title
+    const title = this._cubesEl.querySelector('.cf-cubes-title');
+    if (title) {
+      const cs = g._playerIdentity?.callsign || 'IRONHAWK';
+      title.textContent = `⚡ COMMAND CENTER  —  ${cs}`;
+    }
+  }
 
   // ── Top bar ─────────────────────────────────────────────────────────────
 

@@ -356,3 +356,167 @@ button:focus { outline: none; }
   height: 130px;
   overflow: visible;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMMAND CUBES — visual action cards replacing the canvas quick menu
+   ══════════════════════════════════════════════════════════════════════════ */
+
+#cf-cubes {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+#cf-cubes.hidden { display: none; }
+
+/* Dim backdrop */
+.cf-cubes-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 6, 3, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* Floating glass panel */
+.cf-cubes-panel {
+  position: relative;
+  z-index: 1;
+  background: rgba(0, 18, 9, 0.72);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  border: 1px solid rgba(0, 255, 140, 0.20);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px rgba(0,255,120,0.06),
+              0 0 40px rgba(0,255,100,0.10) inset,
+              0 16px 48px rgba(0,0,0,0.75);
+  padding: 18px 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  min-width: 360px;
+}
+
+.cf-cubes-title {
+  font-family: var(--cf-font);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.18em;
+  color: var(--cf-bright);
+  text-align: center;
+}
+
+.cf-cubes-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.cf-cubes-divider {
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(to right,
+    transparent, rgba(0,255,120,0.22), transparent);
+}
+
+/* Individual cube card */
+.cf-cube {
+  width: 96px;
+  min-height: 96px;
+  background: rgba(0, 25, 13, 0.70);
+  border: 1px solid rgba(0, 255, 140, 0.20);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s;
+  box-shadow: 0 0 16px rgba(0,255,100,0.06) inset;
+  padding: 10px 6px 8px;
+  user-select: none;
+}
+.cf-cube:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 255, 140, 0.55);
+  box-shadow: 0 0 28px rgba(0,255,120,0.18) inset,
+              0 8px 24px rgba(0,200,80,0.20);
+}
+.cf-cube:active { transform: translateY(-1px); }
+
+/* Sonar cubes get a cyan accent */
+.cf-cube.cf-cube-sonar {
+  border-color: rgba(0, 200, 255, 0.22);
+  box-shadow: 0 0 14px rgba(0,200,255,0.07) inset;
+}
+.cf-cube.cf-cube-sonar:hover {
+  border-color: rgba(0, 200, 255, 0.55);
+  box-shadow: 0 0 28px rgba(0,200,255,0.18) inset,
+              0 8px 24px rgba(0,160,220,0.18);
+}
+
+/* Disabled state (can't afford / no charge) */
+.cf-cube.cf-cube-off {
+  opacity: 0.30;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Cube parts */
+.cf-cube-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+.cf-cube-label {
+  font-family: var(--cf-font);
+  font-size: 8px;
+  color: var(--cf-green);
+  text-align: center;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+}
+.cf-cube.cf-cube-sonar .cf-cube-label { color: #00ccff; }
+
+.cf-cube-footer {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.cf-cube-key {
+  font-family: var(--cf-font);
+  font-size: 7px;
+  color: rgba(0,255,140,0.55);
+  background: rgba(0,100,50,0.35);
+  padding: 1px 5px;
+  border: 1px solid rgba(0,200,100,0.25);
+  border-radius: 3px;
+}
+.cf-cube.cf-cube-sonar .cf-cube-key {
+  color: rgba(0,200,255,0.60);
+  background: rgba(0,60,100,0.35);
+  border-color: rgba(0,180,255,0.25);
+}
+.cf-cube-cost {
+  font-family: var(--cf-font);
+  font-size: 8px;
+  color: #ffcc44;
+}
+.cf-cube-charge {
+  font-family: var(--cf-font);
+  font-size: 8px;
+  color: #00ccff;
+}
+
+.cf-cubes-hint {
+  font-family: var(--cf-font);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--cf-dim);
+  text-align: center;
+}

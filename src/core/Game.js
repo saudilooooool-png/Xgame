@@ -1687,6 +1687,9 @@ export class Game {
     // 3. Radar sweep overlay (fixed — not shaken)
     this.radarSweep.draw(ctx, W / 2, H / 2, W, H);
 
+    // 3b. Smart targeting reticle
+    this._drawTargetingReticle(ctx, W, H);
+
     // 4. FX: vignette + hit flash + score popups + kill feed
     this._drawFX(W, H);
 
@@ -1738,8 +1741,7 @@ export class Game {
 
     // Spatial radar drawn on separate CSS-perspective canvas by CockpitHUD
     this.cockpitHUD.drawRadar(this);
-    // Quick menu overlay (drawn last so it's always on top)
-    if (this._quickMenuOpen) this._drawQuickMenu(ctx, W, H);
+    // Command Cubes menu handled by CockpitHUD DOM overlay (see _quickMenuOpen)
     // Orbital scan HUD indicator
     if (this._orbitalScan > 0)  this._drawOrbitalScanHUD(ctx, W, H);
     // Sonar active effect HUD indicators
@@ -2152,6 +2154,91 @@ export class Game {
     ctx.fillStyle = color;
     ctx.fillText(type === 'sweep' ? '📡' : '👁', cx, cy + 4);
     ctx.fillText(`${ttl.toFixed(1)}s`, cx, cy + 15);
+
+    ctx.globalAlpha = 1;
+    ctx.textAlign   = 'left';
+    ctx.restore();
+  }
+
+  // ── Smart Targeting Reticle ───────────────────────────────────────────────
+
+  _drawTargetingReticle(ctx, W, H) {
+    // Only target radar-detected enemies (consistent with information asymmetry)
+    const blips = this.radarSweep._blips;
+
+    let nearest = null, minDist = 88;
+    for (const e of this.enemySwarm.drones) {
+      if (e.dead || !blips.has(e)) continue;
+      const dx = e.x - this._mouseX, dy = e.y - this._mouseY;
+      const d  = Math.sqrt(dx * dx + dy * dy);
+      if (d < minDist) { minDist = d; nearest = e; }
+    }
+    if (!nearest) return;
+
+    const ex = nearest.x, ey = nearest.y;
+    const isBoss = nearest.role === 'boss';
+    const isCmd  = nearest.role === 'commander';
+    const baseR  = isBoss ? 26 : isCmd ? 22 : 18;
+    const t      = Date.now() / 1000;
+    const r      = baseR * (1 + 0.05 * Math.sin(t * 4));
+    const fadeA  = Math.min(1, (88 - minDist) / 35);
+
+    const color  = isBoss ? '#ff4400' : isCmd ? '#ff8800' : '#00ff88';
+    const bl     = 9;   // bracket arm length
+
+    ctx.save();
+    ctx.globalAlpha = fadeA;
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 1.5;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = 8;
+
+    // Four L-bracket corners
+    const brackets = [
+      [ex - r, ey - r + bl, ex - r, ey - r, ex - r + bl, ey - r],   // TL
+      [ex + r - bl, ey - r, ex + r, ey - r, ex + r, ey - r + bl],   // TR
+      [ex - r, ey + r - bl, ex - r, ey + r, ex - r + bl, ey + r],   // BL
+      [ex + r + bl, ey + r, ex + r, ey + r, ex + r, ey + r - bl],   // BR
+    ];
+    for (const [x1,y1,x2,y2,x3,y3] of brackets) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+      ctx.stroke();
+    }
+
+    // Scanning arc (rotates)
+    ctx.strokeStyle = `${color}30`;
+    ctx.lineWidth   = 1;
+    ctx.shadowBlur  = 0;
+    ctx.beginPath();
+    ctx.arc(ex, ey, r, -Math.PI / 2, -Math.PI / 2 + (t % (Math.PI * 2)));
+    ctx.stroke();
+
+    // Centre dot
+    ctx.fillStyle  = color;
+    ctx.shadowColor = color; ctx.shadowBlur = 5;
+    ctx.beginPath(); ctx.arc(ex, ey, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Data readout — flip side near right panel (262px)
+    const onRight = ex + r + 95 < W - 270;
+    const dataX   = onRight ? ex + r + 9 : ex - r - 9;
+    const align   = onRight ? 'left' : 'right';
+    const hp      = Math.floor((nearest.hp / (nearest.maxHp || 1)) * 100);
+    const threat  = isBoss ? 'CRITICAL' : isCmd || nearest.role === 'sniper' ? 'HIGH' : 'MODERATE';
+
+    ctx.font      = 'bold 8px monospace';
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.globalAlpha = fadeA * 0.92;
+
+    const lines = [
+      `TARGET: ${nearest.role.toUpperCase()}`,
+      `RANGE:  ${Math.round(minDist)}m`,
+      `HP:     ${hp}%`,
+      `THREAT: ${threat}`,
+    ];
+    lines.forEach((line, i) => ctx.fillText(line, dataX, ey - 18 + i * 12));
 
     ctx.globalAlpha = 1;
     ctx.textAlign   = 'left';
