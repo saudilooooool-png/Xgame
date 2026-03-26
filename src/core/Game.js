@@ -1736,8 +1736,8 @@ export class Game {
       this._playerIdentity?.callsign ?? ''
     );
 
-    // Mini-map overview
-    this._drawMiniMap(ctx, W, H);
+    // Spatial radar drawn on separate CSS-perspective canvas by CockpitHUD
+    this.cockpitHUD.drawRadar(this);
     // Quick menu overlay (drawn last so it's always on top)
     if (this._quickMenuOpen) this._drawQuickMenu(ctx, W, H);
     // Orbital scan HUD indicator

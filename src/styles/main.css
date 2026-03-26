@@ -84,8 +84,11 @@ button:focus { outline: none; }
   --cf-dim:     #00532e;
   --cf-warn:    #ffaa00;
   --cf-danger:  #ff3333;
-  --cf-bg:      rgba(0, 8, 4, 0.91);
+  --cf-bg:      rgba(0, 14, 7, 0.55);   /* glassmorphism — semi-transparent */
   --cf-border:  rgba(0, 232, 122, 0.18);
+  --cf-glow:    0 0 0 1px rgba(0,255,140,0.10),
+                0 0 28px rgba(0,255,100,0.07) inset,
+                0 8px 32px rgba(0,0,0,0.65);
   --cf-panel-w: 262px;
   --cf-top-h:   28px;
   --cf-font:    'Courier New', monospace;
@@ -107,6 +110,9 @@ button:focus { outline: none; }
   right: var(--cf-panel-w);
   height: var(--cf-top-h);
   background: var(--cf-bg);
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow: var(--cf-glow);
   border-bottom: 1px solid var(--cf-border);
   display: flex;
   align-items: center;
@@ -152,7 +158,10 @@ button:focus { outline: none; }
   width: var(--cf-panel-w);
   height: 100%;
   background: var(--cf-bg);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
   border-left: 1px solid var(--cf-border);
+  box-shadow: var(--cf-glow);
   z-index: 200;
   pointer-events: none;
   font-family: var(--cf-font);
@@ -163,7 +172,7 @@ button:focus { outline: none; }
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0, transparent 3px,
-    rgba(0, 255, 100, 0.018) 3px, rgba(0, 255, 100, 0.018) 4px
+    rgba(0, 255, 100, 0.016) 3px, rgba(0, 255, 100, 0.016) 4px
   );
 }
 
@@ -298,3 +307,52 @@ button:focus { outline: none; }
 .cf-dim    { color: var(--cf-dim); }
 .cf-red    { color: var(--cf-danger); }
 .cf-warn   { color: var(--cf-warn); }
+
+/* ── Spatial Radar ─────────────────────────────────────────────────────── */
+#cf-radar-wrap {
+  position: fixed;
+  bottom: 36px;
+  /* centre in battlefield, left of right panel */
+  left: calc((100vw - var(--cf-panel-w)) / 2 - 110px);
+  pointer-events: none;
+  z-index: 200;
+  transform-origin: center bottom;
+  transform: perspective(560px) rotateX(30deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  /* glass effect on wrap */
+  filter: drop-shadow(0 0 14px rgba(0,255,100,0.18));
+}
+
+#cf-radar-cv {
+  width: 220px;
+  height: 155px;
+  display: block;
+  border: 1px solid rgba(0, 220, 80, 0.40);
+  box-shadow:
+    0 0 12px rgba(0, 200, 80, 0.18) inset,
+    0 0 40px rgba(0, 0, 0, 0.70);
+  background: rgba(0, 6, 3, 0.82);
+}
+
+#cf-radar-label {
+  font-family: var(--cf-font);
+  font-size: 8px;
+  color: rgba(0, 200, 80, 0.50);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+.cf-rl-sep { color: rgba(0, 200, 80, 0.22); }
+
+/* ── Command Web SVG ───────────────────────────────────────────────────── */
+#cf-web {
+  display: block;
+  width: 238px;
+  height: 130px;
+  overflow: visible;
+}
