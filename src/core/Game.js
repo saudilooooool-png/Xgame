@@ -27,7 +27,8 @@ import { generateSideMission } from '../events/SideMission.js';
 import { EmpTrap } from '../entities/EmpTrap.js';
 import { GatlingTower } from '../entities/GatlingTower.js';
 import { EnemyBase } from '../entities/EnemyBase.js';
-import { CockpitHUD } from '../ui/CockpitHUD.js';
+import { CockpitHUD }   from '../ui/CockpitHUD.js';
+import { CockpitShell } from '../ui/CockpitShell.js';
 
 export class Game {
   constructor() {
@@ -56,8 +57,9 @@ export class Game {
 
     this.upgradeScreen = new UpgradeScreen();
 
-    this.radarSweep  = new RadarSweep();
-    this.cockpitHUD  = new CockpitHUD(this);
+    this.radarSweep   = new RadarSweep();
+    this.cockpitHUD   = new CockpitHUD(this);
+    this.cockpitShell = new CockpitShell();   // Three.js 3-D frame — topmost layer
 
     this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
