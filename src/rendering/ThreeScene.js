@@ -67,21 +67,22 @@ export class ThreeScene {
 
   _initScene() {
     this._scene = new THREE.Scene();
-    this._scene.background = new THREE.Color(0x000a04);
-    this._scene.fog = new THREE.FogExp2(0x000a04, 0.00022);
+    this._scene.background = new THREE.Color(0x020810);
+    // Slightly denser fog for atmosphere
+    this._scene.fog = new THREE.FogExp2(0x020810, 0.00032);
   }
 
   _initCamera() {
     const W = this._W, H = this._H;
     this._camera = new THREE.PerspectiveCamera(52, W / H, 4, 6000);
 
-    // Angled view: high above and behind, looking forward-down (~40° elevation)
-    this._camera.position.set(W / 2, H * 0.65, H * 0.88);
-    this._camera.lookAt(W / 2, 0, H * 0.12);
+    // Angled view: lower elevation ~25-30° so objects look truly 3D, not flat ovals
+    this._camera.position.set(W / 2, H * 0.45, H * 1.1);
+    this._camera.lookAt(W / 2, 0, H * 0.05);
 
     // Parallax base position
     this._camBase = this._camera.position.clone();
-    this._camLook = new THREE.Vector3(W / 2, 0, H * 0.12);
+    this._camLook = new THREE.Vector3(W / 2, 0, H * 0.05);
 
     this._driftX = 0; this._driftY = 0;
     this._tgtX   = 0; this._tgtY   = 0;
@@ -122,11 +123,11 @@ export class ThreeScene {
   _buildGround() {
     const W = this._W, H = this._H;
 
-    // ── Ground plane ────────────────────────────────────────────────────
+    // ── Ground plane — dark military terrain (brownish-green) ────────────
     const groundGeo = new THREE.PlaneGeometry(W * 2, H * 2, 1, 1);
     groundGeo.rotateX(-Math.PI / 2);
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x000804, roughness: 0.97, metalness: 0.04
+      color: 0x1a2410, roughness: 0.95, metalness: 0.04
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.position.set(W / 2, -1, H / 2);
@@ -176,6 +177,9 @@ export class ThreeScene {
 
     // ── Background city (dark decorative buildings) ──────────────────────
     this._buildCityscape();
+
+    // ── Atmospheric smoke/debris particles ──────────────────────────────
+    this._buildAtmosphericParticles();
   }
 
   _buildCityscape() {
@@ -216,6 +220,74 @@ export class ThreeScene {
         this._scene.add(wm);
       }
     }
+  }
+
+  _buildAtmosphericParticles() {
+    const W = this._W, H = this._H;
+    const COUNT = 35;
+    const positions = new Float32Array(COUNT * 3);
+    const velocities = [];
+
+    for (let i = 0; i < COUNT; i++) {
+      positions[i * 3    ] = Math.random() * W;
+      positions[i * 3 + 1] = Math.random() * 120;
+      positions[i * 3 + 2] = Math.random() * H;
+      velocities.push({
+        x: (Math.random() - 0.5) * 0.18,
+        y: 0.08 + Math.random() * 0.14,
+        z: (Math.random() - 0.5) * 0.18,
+        maxY: 130 + Math.random() * 80
+      });
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = new THREE.PointsMaterial({
+      color: 0x445533,
+      size: 4.5,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false
+    });
+
+    const points = new THREE.Points(geo, mat);
+    this._scene.add(points);
+
+    // Store refs for animation
+    this._atmosParticles   = points;
+    this._atmosPositions   = positions;
+    this._atmosVelocities  = velocities;
+    this._atmosW = W;
+    this._atmosH = H;
+  }
+
+  _animateAtmosphericParticles() {
+    if (!this._atmosParticles) return;
+    const pos = this._atmosPositions;
+    const vel = this._atmosVelocities;
+    const W   = this._atmosW;
+    const H   = this._atmosH;
+
+    for (let i = 0; i < vel.length; i++) {
+      pos[i * 3    ] += vel[i].x;
+      pos[i * 3 + 1] += vel[i].y;
+      pos[i * 3 + 2] += vel[i].z;
+
+      // Wrap: reset when above maxY, drifted out of bounds
+      if (pos[i * 3 + 1] > vel[i].maxY) {
+        pos[i * 3    ] = Math.random() * W;
+        pos[i * 3 + 1] = 0;
+        pos[i * 3 + 2] = Math.random() * H;
+      }
+      if (pos[i * 3] < 0)  pos[i * 3] += W;
+      if (pos[i * 3] > W)  pos[i * 3] -= W;
+      if (pos[i * 3 + 2] < 0) pos[i * 3 + 2] += H;
+      if (pos[i * 3 + 2] > H) pos[i * 3 + 2] -= H;
+    }
+
+    this._atmosParticles.geometry.attributes.position.needsUpdate = true;
   }
 
   // ── Entity mesh factories ──────────────────────────────────────────────────
@@ -306,8 +378,8 @@ export class ThreeScene {
     base.receiveShadow = true;
     g.add(base);
 
-    // Tower column
-    const tH = 88;
+    // Tower column — tall enough to be clearly visible from the new camera angle
+    const tH = 160;
     const tower = new THREE.Mesh(
       new THREE.CylinderGeometry(24, 30, tH, 8),
       new THREE.MeshStandardMaterial({ color: 0x081408, metalness: 0.78, roughness: 0.38 })
@@ -481,6 +553,7 @@ export class ThreeScene {
     this._camera.position.x = this._camBase.x + this._driftX;
     this._camera.position.y = this._camBase.y + this._driftY;
 
+    this._animateAtmosphericParticles();
     this._sync();
     this._renderer.render(this._scene, this._camera);
   }
