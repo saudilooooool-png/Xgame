@@ -4,11 +4,40 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0a0f1a;
+  background: #080c10;
   font-family: monospace;
   /* Prevent double-tap zoom on mobile */
   touch-action: manipulation;
 }
+
+/* ── Global scanline overlay — sits above everything except the cursor ─── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 2px,
+    rgba(0, 0, 0, 0.13) 2px, rgba(0, 0, 0, 0.13) 3px
+  );
+  /* subtle phosphor vignette */
+  /* combine scanlines with edge darkening */
+  mask-image: none;
+}
+
+/* ── Global CRT phosphor flicker — very subtle ──────────────────────────── */
+@keyframes phosphorFlicker {
+  0%   { opacity: 1.00; }
+  92%  { opacity: 1.00; }
+  93%  { opacity: 0.97; }
+  95%  { opacity: 1.00; }
+  97%  { opacity: 0.98; }
+  100% { opacity: 1.00; }
+}
+
+html { animation: phosphorFlicker 8s ease-in-out infinite; }
 
 #game-container {
   position: fixed;
@@ -602,3 +631,200 @@ button:focus { outline: none; }
   50%       { background: rgba(255, 60, 0, 0.08); }
 }
 .cf-obj-row.cf-threatened { animation: cf-obj-threatened 1.0s ease-in-out infinite; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ENHANCED COCKPIT PANELS — visual overhaul
+   More distinct glassmorphism with cyan/green dual-accent system
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Panel inner glow edge highlight ────────────────────────────────── */
+#cf-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(to right,
+    transparent 0%,
+    rgba(0,232,122,0.6) 20%,
+    rgba(0,212,255,0.4) 50%,
+    rgba(0,232,122,0.6) 80%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* ── Panel top gradient accent ───────────────────────────────────────── */
+#cf-panel::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 120px;
+  background: linear-gradient(to bottom,
+    rgba(0,255,140,0.04) 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* ── Top-bar left accent glow line ──────────────────────────────────── */
+#cf-topbar::before {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(to right,
+    rgba(0,212,255,0.8) 0%,
+    rgba(0,232,122,0.6) 40%,
+    rgba(0,212,255,0.4) 70%,
+    transparent 100%
+  );
+}
+
+/* ── Radar wrap — cyan dual border ──────────────────────────────────── */
+#cf-radar-cv {
+  position: relative;
+}
+#cf-radar-cv::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border: 1px solid rgba(0,212,255,0.15);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* ── Section label — enhanced left bar accent ────────────────────────── */
+.cf-section-label {
+  position: relative;
+}
+.cf-section-label::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: -6px;
+  transform: translateY(-50%);
+  width: 4px; height: 4px;
+  background: var(--cf-green);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--cf-green);
+}
+
+/* ── Objective bar fill — gradient sheen ─────────────────────────────── */
+.cf-bar-fill {
+  background: linear-gradient(to right,
+    currentColor 0%,
+    rgba(255,255,255,0.3) 50%,
+    currentColor 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+.cf-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; right: 0; bottom: 0;
+  background: linear-gradient(to right,
+    transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%
+  );
+  animation: barSheen 3s ease-in-out infinite;
+  width: 60%;
+}
+@keyframes barSheen {
+  from { left: -60%; }
+  to   { left: 160%; }
+}
+
+/* ── Top-bar stat chips ──────────────────────────────────────────────── */
+#cf-topbar .cf-stat-chip {
+  background: rgba(0,255,140,0.06);
+  border: 1px solid rgba(0,255,140,0.18);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  color: var(--cf-bright);
+}
+
+/* ── Unit row hover highlight ────────────────────────────────────────── */
+.cf-unit-row:hover {
+  background: rgba(0,255,140,0.04);
+  border-radius: 3px;
+}
+
+/* ── Panel bottom footer extra border clarity ───────────────────────── */
+.cf-section-footer {
+  border-top: 2px solid rgba(0,232,122,0.35);
+  background: linear-gradient(to top,
+    rgba(0,255,100,0.05) 0%, transparent 100%
+  );
+}
+
+/* ── Corner brackets — enhanced with inner accent dot ───────────────── */
+.cf-corner::after {
+  content: '';
+  position: absolute;
+  width: 6px; height: 6px;
+  background: var(--cf-green);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--cf-green), 0 0 16px rgba(0,255,140,0.4);
+}
+.cf-tl::after { top: -3px; left: -3px; }
+.cf-tr::after { top: -3px; right: -3px; }
+.cf-bl::after { bottom: -3px; left: -3px; }
+.cf-br::after { bottom: -3px; right: -3px; }
+
+/* ── Grid cells — cleaner distinct style ────────────────────────────── */
+.cf-grid {
+  background: rgba(0,10,5,0.5);
+  padding: 3px;
+  border: 1px solid rgba(0,100,50,0.25);
+  border-radius: 3px;
+}
+
+/* ── Threat section enhanced background ─────────────────────────────── */
+.cf-threat-row {
+  background: rgba(0,5,2,0.3);
+  border-radius: 4px;
+  margin: 2px 6px;
+}
+
+/* ── Command cubes panel — enhanced glow ────────────────────────────── */
+.cf-cubes-panel {
+  border: 1px solid rgba(0, 255, 140, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(0,255,120,0.10),
+    0 0 60px rgba(0,255,100,0.14) inset,
+    0 0 0 2px rgba(0,212,255,0.05),
+    0 20px 60px rgba(0,0,0,0.85);
+}
+
+/* ── Cube cards — more metallic look ────────────────────────────────── */
+.cf-cube {
+  background:
+    linear-gradient(135deg, rgba(0,40,20,0.85) 0%, rgba(0,20,10,0.70) 100%);
+  box-shadow:
+    0 0 16px rgba(0,255,100,0.08) inset,
+    0 2px 4px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(0,255,140,0.1);
+}
+.cf-cube:hover {
+  background:
+    linear-gradient(135deg, rgba(0,60,30,0.90) 0%, rgba(0,30,15,0.80) 100%);
+}
+
+/* ── Formation panel enhanced ────────────────────────────────────────── */
+#formation-panel {
+  border: 1px solid rgba(0, 212, 255, 0.28) !important;
+  box-shadow:
+    0 0 0 1px rgba(0,212,255,0.08),
+    0 0 20px rgba(0,212,255,0.08) inset,
+    0 8px 32px rgba(0,0,0,0.7) !important;
+  background: rgba(0, 8, 20, 0.88) !important;
+}
+
+#formation-panel button {
+  border: 1px solid rgba(0,212,255,0.22) !important;
+  transition: all 0.15s ease !important;
+}
+
+#formation-panel button:hover, #formation-panel button:active {
+  border-color: rgba(0,212,255,0.6) !important;
+  box-shadow: 0 0 12px rgba(0,212,255,0.25) inset !important;
+}
