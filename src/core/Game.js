@@ -29,6 +29,7 @@ import { GatlingTower } from '../entities/GatlingTower.js';
 import { EnemyBase } from '../entities/EnemyBase.js';
 import { CockpitHUD }   from '../ui/CockpitHUD.js';
 import { CockpitShell } from '../ui/CockpitShell.js';
+import { ThreeScene }   from '../rendering/ThreeScene.js';
 
 export class Game {
   constructor() {
@@ -59,7 +60,8 @@ export class Game {
 
     this.radarSweep   = new RadarSweep();
     this.cockpitHUD   = new CockpitHUD(this);
-    this.cockpitShell = new CockpitShell();   // Three.js 3-D frame — topmost layer
+    this.threeScene   = new ThreeScene(this);  // 3-D game world — replaces 2-D visual
+    this.cockpitShell = new CockpitShell();    // Three.js cockpit frame — topmost layer
 
     this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
