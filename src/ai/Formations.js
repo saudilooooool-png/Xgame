@@ -3,15 +3,15 @@
 // sep = separationWeight, ali = alignmentWeight, coh = cohesionWeight, seek = seekWeight
 export const FORMATION_BOIDS = {
   // وتش WATCH — balanced patrol stance (default)
-  watch:  { sep: 1.0, ali: 1.0, coh: 0.8, seek: 1.0, label: 'وتش  WATCH'  },
+  watch:  { sep: 1.0, ali: 1.0, coh: 0.8, seek: 1.0, label: 'وتش  WATCH',  hint: 'دورية متوازنة — مناسب للدفاع العام' },
   // خنجر DAGGER — aggressive rush, tight pack, high seek
-  dagger: { sep: 0.4, ali: 1.2, coh: 2.5, seek: 2.8, label: 'خنجر DAGGER' },
+  dagger: { sep: 0.4, ali: 1.2, coh: 2.5, seek: 2.8, label: 'خنجر DAGGER', hint: 'هجوم مركّز — يخترق الخطوط السريع' },
   // درع SHIELD — wide defensive arc, high separation
-  shield: { sep: 2.8, ali: 0.8, coh: 1.6, seek: 0.5, label: 'درع  SHIELD' },
+  shield: { sep: 2.8, ali: 0.8, coh: 1.6, seek: 0.5, label: 'درع  SHIELD', hint: 'قوس دفاعي — يحمي المدن من الجانبين' },
   // شبكة NET — maximum spread, encirclement
-  net:    { sep: 3.2, ali: 0.5, coh: 0.2, seek: 1.3, label: 'شبكة NET'    },
+  net:    { sep: 3.2, ali: 0.5, coh: 0.2, seek: 1.3, label: 'شبكة NET',    hint: 'تطويق واسع — يُحاصر الأعداء في المنتصف' },
   // نقطة POINT — dense scout, breaks stealth cover
-  point:  { sep: 0.2, ali: 1.5, coh: 3.5, seek: 3.5, label: 'نقطة POINT'  },
+  point:  { sep: 0.2, ali: 1.5, coh: 3.5, seek: 3.5, label: 'نقطة POINT',  hint: 'كتلة كثيفة — يكشف المتخفّين بالتركيز' },
 };
 
 // ── Position layout functions per formation ────────────────────────────────────

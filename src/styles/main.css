@@ -794,21 +794,106 @@ button:focus { outline: none; }
 /* ── Formation status strip ──────────────────────────────────────────── */
 .cf-section-formation {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 3px;
   padding: 5px 10px;
   border-top: 1px solid rgba(0,232,122,0.20);
   background: rgba(0,255,140,0.03);
+}
+.cf-formation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 #cf-formation {
   font-size: 13px;
   letter-spacing: 0.04em;
   font-weight: 600;
 }
-.cf-formation-hint {
+.cf-formation-keys {
   font-size: 10px;
   margin-left: auto;
   opacity: 0.5;
+}
+.cf-formation-hint-text {
+  font-size: 10px;
+  color: rgba(0,232,122,0.70);
+  font-style: italic;
+  min-height: 13px;
+  transition: opacity 0.3s;
+}
+
+/* ── SONAR / EMP resource pips ───────────────────────────────────────── */
+.cf-section-resources {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0,232,122,0.15);
+}
+.cf-resource-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.cf-pips {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.cf-pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(0,232,122,0.12);
+  border: 1px solid rgba(0,232,122,0.30);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.cf-pip.cf-pip-on {
+  background: rgba(0,232,122,0.75);
+  box-shadow: 0 0 6px rgba(0,232,122,0.55);
+  border-color: rgba(0,232,122,0.90);
+}
+.cf-pip-emp.cf-pip-on {
+  background: rgba(0,200,255,0.75);
+  box-shadow: 0 0 6px rgba(0,200,255,0.55);
+  border-color: rgba(0,200,255,0.90);
+}
+.cf-res-keys {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+/* ── Group-switch center banner ──────────────────────────────────────── */
+.cf-grp-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 28px;
+  background: rgba(0,12,6,0.82);
+  border: 1px solid currentColor;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+.cf-grp-banner.hidden { display: none; }
+.cf-grp-id {
+  font-size: 22px;
+  font-weight: 700;
+  font-family: monospace;
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 12px currentColor;
+}
+.cf-grp-count {
+  font-size: 12px;
+  opacity: 0.75;
+  font-family: monospace;
 }
 
 /* ── Corner brackets — enhanced with inner accent dot ───────────────── */

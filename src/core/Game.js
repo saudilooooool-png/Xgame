@@ -327,7 +327,9 @@ export class Game {
     const idx = occupied.indexOf(cur);
     this.playerSwarm.activeGroup = occupied[(idx + 1) % occupied.length];
     const NAMES = { A: 'ALPHA', B: 'BRAVO', C: 'CHARLIE', D: 'DELTA' };
-    this._showAlert(`المجموعة ${NAMES[this.playerSwarm.activeGroup] ?? this.playerSwarm.activeGroup} نشطة`);
+    const grp   = this.playerSwarm.activeGroup;
+    const count = this.playerSwarm.drones.filter(d => !d.dead && d._group === grp).length;
+    this.cockpitHUD.showGroupBanner(grp, count);
   }
 
   // ── EMP trap placement ────────────────────────────────────────────────────
@@ -419,6 +421,9 @@ export class Game {
     // Lazy-import label from FORMATION_BOIDS (already in SwarmController module)
     const labels = { watch: 'وتش  WATCH', dagger: 'خنجر DAGGER', shield: 'درع  SHIELD', net: 'شبكة NET', point: 'نقطة POINT' };
     this._showAlert(`⬡ تشكيل: ${labels[name] ?? name.toUpperCase()}`);
+    // Show formation hint in HUD for 2 seconds
+    const { FORMATION_BOIDS } = await import('../ai/Formations.js').catch(() => ({}));
+    if (FORMATION_BOIDS?.[name]?.hint) this.cockpitHUD.showFormationHint(FORMATION_BOIDS[name].hint);
   }
 
   _nextWave() {

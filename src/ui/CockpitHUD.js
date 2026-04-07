@@ -92,9 +92,25 @@ export class CockpitHUD {
       </div>
 
       <div class="cf-section cf-section-formation">
-        <span class="cf-section-label">FORMATION</span>
-        <span id="cf-formation" class="cf-green">وتش  WATCH</span>
-        <span class="cf-dim cf-formation-hint">[Z/C/V/B/N]</span>
+        <div class="cf-formation-row">
+          <span class="cf-section-label">FORMATION</span>
+          <span id="cf-formation" class="cf-green">وتش  WATCH</span>
+          <span class="cf-dim cf-formation-keys">[Z/C/V/B/N]</span>
+        </div>
+        <div id="cf-formation-hint" class="cf-formation-hint-text"></div>
+      </div>
+
+      <div class="cf-section cf-section-resources">
+        <div class="cf-resource-row">
+          <span class="cf-section-label">SONAR</span>
+          <div id="cf-sonar-pips" class="cf-pips"></div>
+          <span class="cf-dim cf-res-keys">[Q/W/F]</span>
+        </div>
+        <div class="cf-resource-row">
+          <span class="cf-section-label">EMP</span>
+          <div id="cf-emp-pips" class="cf-pips"></div>
+          <span class="cf-dim cf-res-keys">[X]</span>
+        </div>
       </div>
     `;
     root.appendChild(panel);
@@ -125,6 +141,13 @@ export class CockpitHUD {
 
     // ── 4. Command Cubes overlay ───────────────────────────────────────────
     this._injectCommandCubes(root);
+
+    // ── 5. Group-switch banner (center screen, transient) ──────────────────
+    const grpBanner = document.createElement('div');
+    grpBanner.id = 'cf-grp-banner';
+    grpBanner.className = 'cf-grp-banner hidden';
+    root.appendChild(grpBanner);
+    this._grpBannerTimer = 0;
   }
 
   _injectCommandCubes(root) {
@@ -209,8 +232,39 @@ export class CockpitHUD {
 
   // ── Public API ──────────────────────────────────────────────────────────
 
+  /**
+   * Show the center-screen group-switch banner.
+   * @param {string} groupId  — 'A' | 'B' | 'C' | 'D'
+   * @param {number} count    — number of drones in that group
+   */
+  showGroupBanner(groupId, count) {
+    const NAMES = { A: 'ALPHA', B: 'BRAVO', C: 'CHARLIE', D: 'DELTA' };
+    const COLORS = { A: '#00e87a', B: '#00ccff', C: '#ffaa00', D: '#ff6688' };
+    const el = document.getElementById('cf-grp-banner');
+    if (!el) return;
+    el.style.color      = COLORS[groupId] ?? '#00e87a';
+    el.style.borderColor = COLORS[groupId] ?? '#00e87a';
+    el.innerHTML = `
+      <span class="cf-grp-id">${NAMES[groupId] ?? groupId}</span>
+      <span class="cf-grp-count">${count} مسيّرة نشطة</span>
+    `;
+    el.classList.remove('hidden', 'cf-grp-fadeout');
+    this._grpBannerTimer = 1.5;
+  }
+
   /** Call every frame (throttled internally). */
   update(dt) {
+    // Tick the group banner fade (unthrottled — needs smooth fade)
+    if (this._grpBannerTimer > 0) {
+      this._grpBannerTimer -= dt;
+      const el = document.getElementById('cf-grp-banner');
+      if (el) {
+        const alpha = Math.min(1, this._grpBannerTimer / 0.4);
+        el.style.opacity = alpha;
+        if (this._grpBannerTimer <= 0) el.classList.add('hidden');
+      }
+    }
+
     this._throttle -= dt;
     if (this._throttle > 0) return;
     this._throttle = 0.12;
@@ -221,6 +275,7 @@ export class CockpitHUD {
     this._updateCommandWeb(g);
     this._updateThreat(g);
     this._updateCommanderDanger(g);
+    this._updateResources(g);
     this._updateFooter(g);
     this._updateRadarLabel(g);
     this._updateCommandCubes(g);
@@ -681,6 +736,27 @@ export class CockpitHUD {
       <span class="cf-dim">${topRole ? topRole[0].toUpperCase() : ''} ×${total}</span>`;
   }
 
+  // ── Sonar + EMP resource pips ────────────────────────────────────────────
+
+  _updateResources(g) {
+    const sonarEl = document.getElementById('cf-sonar-pips');
+    const empEl   = document.getElementById('cf-emp-pips');
+    if (sonarEl) {
+      const charges = g._sonarCharges ?? 0;
+      const max     = 3;
+      sonarEl.innerHTML = Array.from({ length: max }, (_, i) =>
+        `<span class="cf-pip${i < charges ? ' cf-pip-on' : ''}" title="${i < charges ? 'متاح' : 'مستهلك'}"></span>`
+      ).join('');
+    }
+    if (empEl) {
+      const charges = g._empCharges ?? 0;
+      const max     = Math.max(charges, 3);   // expand if player has bonus charges
+      empEl.innerHTML = Array.from({ length: max }, (_, i) =>
+        `<span class="cf-pip cf-pip-emp${i < charges ? ' cf-pip-on' : ''}" title="${i < charges ? 'متاح' : 'مستهلك'}"></span>`
+      ).join('');
+    }
+  }
+
   // ── Commander danger banner ──────────────────────────────────────────────
 
   _updateCommanderDanger(g) {
@@ -703,6 +779,26 @@ export class CockpitHUD {
     };
     const f = g.playerSwarm?.currentFormation ?? 'watch';
     _set('cf-formation', FORM_LABELS[f] ?? f.toUpperCase());
+
+    // Tick formation hint fade
+    if ((this._formHintTimer ?? 0) > 0) {
+      this._formHintTimer -= 0.12;   // matches throttle interval
+      const hintEl = document.getElementById('cf-formation-hint');
+      if (hintEl) {
+        const alpha = Math.min(1, this._formHintTimer / 0.5);
+        hintEl.style.opacity = alpha;
+        if (this._formHintTimer <= 0) hintEl.textContent = '';
+      }
+    }
+  }
+
+  /** Show the formation hint text for 2 seconds. */
+  showFormationHint(hint) {
+    const hintEl = document.getElementById('cf-formation-hint');
+    if (!hintEl) return;
+    hintEl.textContent = hint;
+    hintEl.style.opacity = 1;
+    this._formHintTimer = 2.0;
   }
 
   // ── Radar label ──────────────────────────────────────────────────────────
