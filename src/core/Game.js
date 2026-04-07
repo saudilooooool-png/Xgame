@@ -17,6 +17,7 @@ import { UpgradeScreen } from '../ui/UpgradeScreen.js';
 import { StartScreen } from '../ui/StartScreen.js';
 import { MissionSetupScreen } from '../ui/MissionSetupScreen.js';
 import { ScoutIntro } from '../ui/ScoutIntro.js';
+import { FORMATION_BOIDS } from '../ai/Formations.js';
 import { TARGET_TYPES } from '../entities/TargetTypes.js';
 import { waveComposition } from '../entities/EnemyRoles.js';
 import { getWaveStory } from '../data/StoryLines.js';
@@ -413,7 +414,7 @@ export class Game {
 
   // ── Formation control ─────────────────────────────────────────────────────
 
-  _setFormation(name) {
+  _setFormation(name) {  // sync — FORMATION_BOIDS is a static import
     if (!this.running) return;
     const tz = this.playerSwarm.targetZone;
     this.playerSwarm.setFormation(name, tz?.x, tz?.y);
@@ -421,9 +422,9 @@ export class Game {
     // Lazy-import label from FORMATION_BOIDS (already in SwarmController module)
     const labels = { watch: 'وتش  WATCH', dagger: 'خنجر DAGGER', shield: 'درع  SHIELD', net: 'شبكة NET', point: 'نقطة POINT' };
     this._showAlert(`⬡ تشكيل: ${labels[name] ?? name.toUpperCase()}`);
-    // Show formation hint in HUD for 2 seconds
-    const { FORMATION_BOIDS } = await import('../ai/Formations.js').catch(() => ({}));
-    if (FORMATION_BOIDS?.[name]?.hint) this.cockpitHUD.showFormationHint(FORMATION_BOIDS[name].hint);
+    if (FORMATION_BOIDS[name]?.hint) this.cockpitHUD.showFormationHint(FORMATION_BOIDS[name].hint);
+    // Force preview redraw immediately
+    this.cockpitHUD._lastPreviewFormation = null;
   }
 
   _nextWave() {

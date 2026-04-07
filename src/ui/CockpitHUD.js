@@ -1,3 +1,5 @@
+import { FORMATIONS, FORMATION_BOIDS } from '../ai/Formations.js';
+
 /**
  * CockpitHUD — military commander DOM/canvas overlay.
  *
@@ -104,7 +106,11 @@ export class CockpitHUD {
           <span id="cf-formation" class="cf-green">وتش  WATCH</span>
           <span class="cf-dim cf-formation-keys">[Z/C/V/B/N]</span>
         </div>
-        <div id="cf-formation-hint" class="cf-formation-hint-text"></div>
+        <div class="cf-formation-body">
+          <svg id="cf-formation-svg" class="cf-formation-svg"
+               viewBox="0 0 80 60" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div id="cf-formation-hint" class="cf-formation-hint-text"></div>
+        </div>
       </div>
 
       <div class="cf-section cf-section-resources">
@@ -297,6 +303,7 @@ export class CockpitHUD {
     this._updateCommanderHp(g);
     this._updateResources(g);
     this._updatePlacementBar(g);
+    this._updateFormationPreview(g);
     this._updateFooter(g);
     this._updateRadarLabel(g);
     this._updateCommandCubes(g);
@@ -872,6 +879,86 @@ export class CockpitHUD {
         if (this._formHintTimer <= 0) hintEl.textContent = '';
       }
     }
+  }
+
+  // ── Formation SVG preview ─────────────────────────────────────────────────
+
+  _updateFormationPreview(g) {
+    const svg = document.getElementById('cf-formation-svg');
+    if (!svg) return;
+
+    const name = g.playerSwarm?.currentFormation ?? 'watch';
+    // Only redraw when formation changes
+    if (this._lastPreviewFormation === name) return;
+    this._lastPreviewFormation = name;
+
+    const fn = FORMATIONS[name];
+    if (!fn) { svg.innerHTML = ''; return; }
+
+    // SVG canvas: 80×60 viewBox, center at (40, 30)
+    const W = 80, H = 60, cx = W / 2, cy = H / 2;
+    const N = 12;   // fixed dot count for preview
+    const pts = fn(N, cx, cy);
+
+    // Find bounding box to auto-scale into the viewBox
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+    const rangeX = Math.max(maxX - minX, 1);
+    const rangeY = Math.max(maxY - minY, 1);
+    const pad = 8;
+    const scaleX = (W - pad * 2) / rangeX;
+    const scaleY = (H - pad * 2) / rangeY;
+    const scale  = Math.min(scaleX, scaleY, 2.2);   // cap so dots don't overdraw
+
+    const toSvg = (p) => ({
+      x: pad + (p.x - minX) * scale + (W - pad * 2 - rangeX * scale) / 2,
+      y: pad + (p.y - minY) * scale + (H - pad * 2 - rangeY * scale) / 2,
+    });
+
+    const accentColor = FORMATION_BOIDS[name] ? '#00e87a' : '#00ccff';
+    const t = Date.now() / 1000;
+
+    // Draw faint hull outline connecting outer points
+    const hull = [...pts].sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
+    const hullSvg = hull.map((p, i) => {
+      const sp = toSvg(p);
+      return `${i === 0 ? 'M' : 'L'} ${sp.x.toFixed(1)} ${sp.y.toFixed(1)}`;
+    }).join(' ') + ' Z';
+
+    let html = `
+      <defs>
+        <filter id="fpgw" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <path d="${hullSvg}" fill="${accentColor}" fill-opacity="0.05"
+            stroke="${accentColor}" stroke-opacity="0.18" stroke-width="0.8"
+            stroke-dasharray="2,2"/>`;
+
+    // Draw dots for each drone position
+    for (let i = 0; i < pts.length; i++) {
+      const sp = toSvg(pts[i]);
+      // Slight stagger in opacity based on index
+      const op = 0.55 + 0.35 * Math.sin(t * 1.8 + i * 0.55);
+      html += `<circle cx="${sp.x.toFixed(1)}" cy="${sp.y.toFixed(1)}" r="2.4"
+        fill="${accentColor}" opacity="${op.toFixed(2)}" filter="url(#fpgw)"/>`;
+    }
+
+    // Center crosshair (target point)
+    const cc = toSvg({ x: cx, y: cy });
+    html += `
+      <line x1="${(cc.x-4).toFixed(1)}" y1="${cc.y.toFixed(1)}"
+            x2="${(cc.x+4).toFixed(1)}" y2="${cc.y.toFixed(1)}"
+            stroke="${accentColor}" stroke-width="0.7" opacity="0.30"/>
+      <line x1="${cc.x.toFixed(1)}" y1="${(cc.y-4).toFixed(1)}"
+            x2="${cc.x.toFixed(1)}" y2="${(cc.y+4).toFixed(1)}"
+            stroke="${accentColor}" stroke-width="0.7" opacity="0.30"/>`;
+
+    svg.innerHTML = html;
   }
 
   /** Show the formation hint text for 2 seconds. */
