@@ -1048,3 +1048,119 @@ button:focus { outline: none; }
   border-color: rgba(0,212,255,0.6) !important;
   box-shadow: 0 0 12px rgba(0,212,255,0.25) inset !important;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   MOBILE CONTROLS — virtual button bar
+   ════════════════════════════════════════════════════════════════════════ */
+
+.mc-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0; right: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px env(safe-area-inset-bottom, 6px);
+  background: rgba(0,8,4,0.88);
+  border-top: 1px solid rgba(0,232,122,0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.mc-row {
+  display: flex;
+  gap: 4px;
+  justify-content: stretch;
+}
+
+.mc-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 6px 2px;
+  background: rgba(0,255,140,0.05);
+  border: 1px solid rgba(0,232,122,0.22);
+  border-radius: 4px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.mc-btn.mc-active,
+.mc-btn:active {
+  background: rgba(0,255,140,0.18);
+  border-color: rgba(0,232,122,0.70);
+  box-shadow: 0 0 8px rgba(0,255,140,0.30);
+}
+
+/* Active formation — stays highlighted */
+.mc-btn.mc-current {
+  background: rgba(0,232,122,0.14);
+  border-color: rgba(0,232,122,0.55);
+  box-shadow: 0 0 6px rgba(0,232,122,0.25);
+}
+
+.mc-btn.mc-action  { background: rgba(0,180,255,0.04); border-color: rgba(0,180,255,0.20); }
+.mc-btn.mc-special { background: rgba(255,200,0,0.04);  border-color: rgba(255,200,0,0.22); }
+
+.mc-label {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: monospace;
+  color: #00e87a;
+  line-height: 1;
+}
+.mc-btn.mc-action  .mc-label { color: #00ccff; }
+.mc-btn.mc-special .mc-label { color: #ffcc00; }
+
+.mc-sub {
+  font-size: 8px;
+  color: rgba(200,255,220,0.45);
+  font-family: monospace;
+  letter-spacing: 0.05em;
+}
+
+/* ── Responsive HUD adjustments on mobile ──────────────────────────────── */
+@media (max-width: 600px) {
+  :root {
+    --cf-panel-w: 200px;
+    --cf-top-h:   32px;
+  }
+
+  #cf-panel {
+    font-size: 10px;
+  }
+
+  .cf-section-label { font-size: 8px; }
+  #cf-formation     { font-size: 11px; }
+  .cf-formation-svg { width: 60px; height: 45px; }
+
+  /* Radar moves to bottom-left above mobile bar */
+  #cf-radar-wrap {
+    bottom: 130px !important;  /* above mc-bar height */
+  }
+
+  /* Placement bar sits above mobile controls */
+  .cf-placement-bar { bottom: 130px; }
+
+  /* Group banner: smaller on phone */
+  .cf-grp-id    { font-size: 16px; }
+  .cf-grp-count { font-size: 10px; }
+
+  /* Hide keyboard-hint text — irrelevant on mobile */
+  .cf-formation-keys,
+  .cf-res-keys,
+  .cf-pb-cancel      { display: none; }
+}
+
+@media (max-width: 400px) {
+  :root { --cf-panel-w: 170px; }
+  .mc-label { font-size: 12px; }
+  .mc-sub   { font-size: 7px; }
+}

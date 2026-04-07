@@ -28,9 +28,10 @@ import { generateSideMission } from '../events/SideMission.js';
 import { EmpTrap } from '../entities/EmpTrap.js';
 import { GatlingTower } from '../entities/GatlingTower.js';
 import { EnemyBase } from '../entities/EnemyBase.js';
-import { CockpitHUD }   from '../ui/CockpitHUD.js';
-import { CockpitShell } from '../ui/CockpitShell.js';
-import { ThreeScene }   from '../rendering/ThreeScene.js';
+import { CockpitHUD }     from '../ui/CockpitHUD.js';
+import { CockpitShell }   from '../ui/CockpitShell.js';
+import { ThreeScene }     from '../rendering/ThreeScene.js';
+import { MobileControls } from '../ui/MobileControls.js';
 
 export class Game {
   constructor() {
@@ -61,8 +62,9 @@ export class Game {
 
     this.radarSweep   = new RadarSweep();
     this.cockpitHUD   = new CockpitHUD(this);
-    this.threeScene   = new ThreeScene(this);  // 3-D game world — replaces 2-D visual
-    this.cockpitShell = new CockpitShell();    // Three.js cockpit frame — topmost layer
+    this.threeScene     = new ThreeScene(this);     // 3-D game world — replaces 2-D visual
+    this.cockpitShell   = new CockpitShell();       // Three.js cockpit frame — topmost layer
+    this.mobileControls = new MobileControls(this); // virtual buttons (touch only)
 
     this.agent  = new Agent(this.playerSwarm, this);
     this.aiMode = false;
@@ -192,6 +194,36 @@ export class Game {
       this._mouseX = e.clientX - r.left;
       this._mouseY = e.clientY - r.top;
     });
+
+    // ── Touch → mouse mapping ──────────────────────────────────────────────
+    // Translates touch events so the existing click/mousemove system works
+    // on mobile without changes to gameplay logic.
+    this.canvas.el.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      const r = this.canvas.el.getBoundingClientRect();
+      this._mouseX = t.clientX - r.left;
+      this._mouseY = t.clientY - r.top;
+    }, { passive: false });
+
+    this.canvas.el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      const r = this.canvas.el.getBoundingClientRect();
+      this._mouseX = t.clientX - r.left;
+      this._mouseY = t.clientY - r.top;
+    }, { passive: false });
+
+    this.canvas.el.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      // Synthesize a click at the last known touch position
+      const synth = new MouseEvent('click', {
+        clientX: this._mouseX + this.canvas.el.getBoundingClientRect().left,
+        clientY: this._mouseY + this.canvas.el.getBoundingClientRect().top,
+        bubbles: true, cancelable: true,
+      });
+      this.canvas.el.dispatchEvent(synth);
+    }, { passive: false });
 
     // Canvas click — capture phase so we intercept before Commander
     this.canvas.el.addEventListener('click', (e) => this._onCanvasClick(e), true);
@@ -726,6 +758,7 @@ export class Game {
     this._updateFX(dt);
     this.commander.updateRecommendation();
     this.cockpitHUD.update(dt);
+    this.mobileControls.update(this.playerSwarm.currentFormation);
   }
 
   // ── Side missions ─────────────────────────────────────────────────────────
