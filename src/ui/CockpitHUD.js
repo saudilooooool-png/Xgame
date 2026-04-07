@@ -84,6 +84,12 @@ export class CockpitHUD {
         <span id="cf-losses" class="cf-red">✗ 0</span>
         <span id="cf-score"  class="cf-dim">0 pts</span>
       </div>
+
+      <div class="cf-section cf-section-formation">
+        <span class="cf-section-label">FORMATION</span>
+        <span id="cf-formation" class="cf-green">وتش  WATCH</span>
+        <span class="cf-dim cf-formation-hint">[Z/C/V/B/N]</span>
+      </div>
     `;
     root.appendChild(panel);
 
@@ -647,6 +653,13 @@ export class CockpitHUD {
     _set('cf-kills',  `⬡ ${g.totalKills}`);
     _set('cf-losses', `✗ ${g.totalLosses}`);
     _set('cf-score',  `${g.score} pts`);
+
+    const FORM_LABELS = {
+      watch: 'وتش  WATCH', dagger: 'خنجر DAGGER',
+      shield: 'درع  SHIELD', net: 'شبكة NET', point: 'نقطة POINT',
+    };
+    const f = g.playerSwarm?.currentFormation ?? 'watch';
+    _set('cf-formation', FORM_LABELS[f] ?? f.toUpperCase());
   }
 
   // ── Radar label ──────────────────────────────────────────────────────────

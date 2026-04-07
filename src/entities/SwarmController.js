@@ -1,6 +1,6 @@
 import { Drone } from './Drone.js';
 import { computeBoidForce } from '../ai/Boids.js';
-import { FORMATIONS } from '../ai/Formations.js';
+import { FORMATIONS, FORMATION_BOIDS } from '../ai/Formations.js';
 import { FRIENDLY_ROLES } from './FriendlyRoles.js';
 import { blueprintMultipliers } from '../data/PlayerIdentity.js';
 
@@ -162,8 +162,16 @@ export class SwarmController {
 
   update(dt, enemies) {
     this.drones.forEach((drone) => {
-      // Each drone uses its own role's boid config
-      const boidCfg = (FRIENDLY_ROLES[drone.role ?? 'standard']).boids;
+      // Each drone uses its own role's boid config, modified by current formation
+      const baseBoidsConfig = (FRIENDLY_ROLES[drone.role ?? 'standard']).boids;
+      const fMul = FORMATION_BOIDS[this.currentFormation] ?? FORMATION_BOIDS.watch;
+      const boidCfg = {
+        ...baseBoidsConfig,
+        separationWeight: baseBoidsConfig.separationWeight * fMul.sep,
+        alignmentWeight:  baseBoidsConfig.alignmentWeight  * fMul.ali,
+        cohesionWeight:   baseBoidsConfig.cohesionWeight   * fMul.coh,
+        seekWeight:       baseBoidsConfig.seekWeight       * fMul.seek,
+      };
 
       const force = computeBoidForce(drone, this.drones, drone.target, boidCfg);
 

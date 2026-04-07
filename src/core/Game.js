@@ -105,6 +105,12 @@ export class Game {
       if (e.key === 'f' || e.key === 'F')         this._useSonarCharge('stealth');
       // Quick menu & its number selections
       if (e.key === 'r' || e.key === 'R')         this._toggleQuickMenu();
+      // ── Formation hotkeys ──────────────────────────────────────────────────
+      if (e.key === 'z' || e.key === 'Z') this._setFormation('watch');
+      if (e.key === 'c' || e.key === 'C') this._setFormation('dagger');
+      if (e.key === 'v' || e.key === 'V') this._setFormation('shield');
+      if (e.key === 'b' || e.key === 'B') this._setFormation('net');
+      if (e.key === 'n' || e.key === 'N') this._setFormation('point');
       if (this._quickMenuOpen) {
         if (e.key === '1') this._quickAction(1);
         if (e.key === '2') this._quickAction(2);
@@ -395,6 +401,18 @@ export class Game {
       this.playerSwarm.mergeGroups();
       this._showAlert('السرب مدمج في المجموعة A');
     }
+  }
+
+  // ── Formation control ─────────────────────────────────────────────────────
+
+  _setFormation(name) {
+    if (!this.running) return;
+    const tz = this.playerSwarm.targetZone;
+    this.playerSwarm.setFormation(name, tz?.x, tz?.y);
+    const { FORMATION_BOIDS } = this._formationBoids ?? {};
+    // Lazy-import label from FORMATION_BOIDS (already in SwarmController module)
+    const labels = { watch: 'وتش  WATCH', dagger: 'خنجر DAGGER', shield: 'درع  SHIELD', net: 'شبكة NET', point: 'نقطة POINT' };
+    this._showAlert(`⬡ تشكيل: ${labels[name] ?? name.toUpperCase()}`);
   }
 
   _nextWave() {

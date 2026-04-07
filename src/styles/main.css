@@ -756,6 +756,26 @@ button:focus { outline: none; }
   );
 }
 
+/* ── Formation status strip ──────────────────────────────────────────── */
+.cf-section-formation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid rgba(0,232,122,0.20);
+  background: rgba(0,255,140,0.03);
+}
+#cf-formation {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.cf-formation-hint {
+  font-size: 10px;
+  margin-left: auto;
+  opacity: 0.5;
+}
+
 /* ── Corner brackets — enhanced with inner accent dot ───────────────── */
 .cf-corner::after {
   content: '';
