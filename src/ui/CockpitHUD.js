@@ -83,6 +83,13 @@ export class CockpitHUD {
           </div>
           <div id="cf-advisory"></div>
         </div>
+        <div id="cf-cmd-hp-row" class="cf-cmd-hp-row hidden">
+          <span class="cf-cmd-hp-label">★ CMD HP</span>
+          <div class="cf-cmd-hp-track">
+            <div id="cf-cmd-hp-fill" class="cf-cmd-hp-fill"></div>
+          </div>
+          <span id="cf-cmd-hp-pct" class="cf-cmd-hp-pct">100%</span>
+        </div>
       </div>
 
       <div class="cf-section cf-section-footer">
@@ -148,6 +155,18 @@ export class CockpitHUD {
     grpBanner.className = 'cf-grp-banner hidden';
     root.appendChild(grpBanner);
     this._grpBannerTimer = 0;
+
+    // ── 6. Placement mode instruction bar (bottom of screen) ───────────────
+    const placementBar = document.createElement('div');
+    placementBar.id = 'cf-placement-bar';
+    placementBar.className = 'cf-placement-bar hidden';
+    placementBar.innerHTML = `
+      <span id="cf-pb-icon"></span>
+      <span id="cf-pb-text"></span>
+      <span id="cf-pb-charges"></span>
+      <span class="cf-pb-cancel">[Escape / ضغطة ثانية للإلغاء]</span>
+    `;
+    root.appendChild(placementBar);
   }
 
   _injectCommandCubes(root) {
@@ -275,7 +294,9 @@ export class CockpitHUD {
     this._updateCommandWeb(g);
     this._updateThreat(g);
     this._updateCommanderDanger(g);
+    this._updateCommanderHp(g);
     this._updateResources(g);
+    this._updatePlacementBar(g);
     this._updateFooter(g);
     this._updateRadarLabel(g);
     this._updateCommandCubes(g);
@@ -612,10 +633,13 @@ export class CockpitHUD {
         const op  = OBJ_POS[oi];
         const obj = objs[oi];
         const hot = (obj?._threatCount ?? 0) > 0;
-        const lc  = hot ? 'rgba(255,100,0,0.30)' : 'rgba(0,210,100,0.18)';
+        const lc  = hot
+          ? (grp.active ? 'rgba(255,120,0,0.55)' : 'rgba(255,100,0,0.18)')
+          : (grp.active ? 'rgba(0,210,100,0.45)' : 'rgba(0,210,100,0.10)');
+        const lw  = grp.active ? 1.2 : 0.6;
         html += `<line x1="${grp.x}" y1="${grp.y - 11}"
                        x2="${op.x}"  y2="${op.y + 8}"
-                       stroke="${lc}" stroke-width="0.8" stroke-dasharray="3,5"/>`;
+                       stroke="${lc}" stroke-width="${lw}" stroke-dasharray="3,5"/>`;
       }
     }
 
@@ -653,25 +677,40 @@ export class CockpitHUD {
     }
 
     // Group nodes — aircraft chevron shape with per-group color
+    const t = Date.now() / 1000;
     for (const grp of grpData) {
       const cx  = grp.x, cy = grp.y;
       const col = hpColor(grp.hp);
-      const accentCol = grp.color;   // role color ring
-      // Active group: outer glow ring
+      const accentCol = grp.color;
+      const inactive  = !grp.active;
+
       if (grp.active) {
+        // Outer slow pulse ring
+        const p1 = 0.55 + 0.45 * Math.sin(t * 2.2);
+        html += `<circle cx="${cx}" cy="${cy - 4}" r="17"
+          fill="none" stroke="${accentCol}" stroke-width="1.5"
+          opacity="${p1.toFixed(2)}" stroke-dasharray="4,3"/>`;
+        // Inner solid ring
+        const p2 = 0.70 + 0.30 * Math.sin(t * 3.5);
         html += `<circle cx="${cx}" cy="${cy - 4}" r="13"
           fill="none" stroke="${accentCol}" stroke-width="1"
-          opacity="0.45" stroke-dasharray="2,3"/>`;
+          opacity="${p2.toFixed(2)}"/>`;
+        // Filled background highlight
+        html += `<circle cx="${cx}" cy="${cy - 4}" r="12"
+          fill="${accentCol}" opacity="0.08"/>`;
       }
+
+      // Chevron — dimmed when not active
       html += `
         <polygon points="${cx},${cy-11} ${cx-7},${cy+3} ${cx},${cy} ${cx+7},${cy+3}"
-          fill="${col}" opacity="0.82" filter="url(#gw)"/>
+          fill="${col}" opacity="${inactive ? 0.35 : 0.85}" filter="url(#gw)"/>
         <text x="${cx}" y="${cy + 18}" text-anchor="middle"
-          font-size="7" fill="${accentCol}" font-family="monospace"
-          font-weight="bold">${grp.label}</text>
+          font-size="7" fill="${inactive ? 'rgba(180,180,180,0.45)' : accentCol}"
+          font-family="monospace" font-weight="bold">${grp.label}</text>
         <text x="${cx}" y="${cy + 27}" text-anchor="middle"
-          font-size="7" fill="${col}" font-family="monospace"
-          opacity="0.75">×${grp.drones.length} ${Math.floor(grp.hp * 100)}%</text>`;
+          font-size="7" fill="${inactive ? 'rgba(180,180,180,0.35)' : col}"
+          font-family="monospace"
+          opacity="${inactive ? 0.4 : 0.75}">×${grp.drones.length} ${Math.floor(grp.hp * 100)}%</text>`;
       if (grp.form) {
         html += `<text x="${cx}" y="${cy + 36}" text-anchor="middle"
           font-size="6" fill="${accentCol}" font-family="monospace" opacity="0.55">${grp.form}</text>`;
@@ -755,6 +794,49 @@ export class CockpitHUD {
         `<span class="cf-pip cf-pip-emp${i < charges ? ' cf-pip-on' : ''}" title="${i < charges ? 'متاح' : 'مستهلك'}"></span>`
       ).join('');
     }
+  }
+
+  // ── Placement mode bar ──────────────────────────────────────────────────
+
+  _updatePlacementBar(g) {
+    const bar = document.getElementById('cf-placement-bar');
+    if (!bar) return;
+    const empActive   = g._empMode   ?? false;
+    const towerActive = g._towerMode ?? false;
+    const active = empActive || towerActive;
+    bar.classList.toggle('hidden', !active);
+    if (!active) return;
+
+    if (empActive) {
+      bar.dataset.mode = 'emp';
+      _set('cf-pb-icon',    '⚡');
+      _set('cf-pb-text',    'انقر لوضع فخ EMP — يُصعق الأعداء في نطاق 80px');
+      _set('cf-pb-charges', `متبقي: ${g._empCharges ?? 0}`);
+    } else {
+      bar.dataset.mode = 'tower';
+      _set('cf-pb-icon',    '🏗');
+      _set('cf-pb-text',    'انقر لبناء برج Gatling');
+      _set('cf-pb-charges', `متبقي: ${3 - (g._towers?.length ?? 0)} مواضع`);
+    }
+  }
+
+  // ── Commander HP in Threat Grid ──────────────────────────────────────────
+
+  _updateCommanderHp(g) {
+    const row    = document.getElementById('cf-cmd-hp-row');
+    const fill   = document.getElementById('cf-cmd-hp-fill');
+    const pctEl  = document.getElementById('cf-cmd-hp-pct');
+    if (!row) return;
+
+    const cmd = g.enemySwarm?.drones.find(d => !d.dead && d.role === 'commander');
+    row.classList.toggle('hidden', !cmd);
+    if (!cmd || !fill || !pctEl) return;
+
+    const pct = Math.max(0, cmd.hp / (cmd.maxHp || 1));
+    const pctPx = Math.round(pct * 100);
+    fill.style.width = `${pctPx}%`;
+    fill.style.background = pct > 0.6 ? '#ffaa00' : pct > 0.3 ? '#ff6600' : '#ff2200';
+    pctEl.textContent = `${pctPx}%`;
   }
 
   // ── Commander danger banner ──────────────────────────────────────────────
