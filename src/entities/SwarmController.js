@@ -12,10 +12,12 @@ export class SwarmController {
     this.targetZone       = null;
     this.formationTargets = [];
 
-    // A/B group system
+    // A/B/C/D group system (4 role-based groups)
     this.activeGroup = 'A';        // which group the player controls
-    this._targetA    = null;       // target zone for group A
-    this._targetB    = null;       // target zone for group B
+    this._targetA    = null;
+    this._targetB    = null;
+    this._targetC    = null;
+    this._targetD    = null;
 
     // Player identity (set via setIdentity before spawning drones)
     this._identity = null;
@@ -92,17 +94,15 @@ export class SwarmController {
     const ty = cy ?? (this.targetZone?.y ?? this.canvas.height / 2);
     this._recalcFormationForGroup('A', tx, ty);
     if (this._targetB) this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
+    if (this._targetC) this._recalcFormationForGroup('C', this._targetC.x, this._targetC.y);
+    if (this._targetD) this._recalcFormationForGroup('D', this._targetD.x, this._targetD.y);
   }
 
   setTargetZone(x, y) {
     this.targetZone = { x, y };
-    if (this.activeGroup === 'A') {
-      this._targetA = { x, y };
-      this._recalcFormationForGroup('A', x, y);
-    } else {
-      this._targetB = { x, y };
-      this._recalcFormationForGroup('B', x, y);
-    }
+    const key = `_target${this.activeGroup}`;
+    this[key] = { x, y };
+    this._recalcFormationForGroup(this.activeGroup, x, y);
   }
 
   /** Recalculate formation targets for one group only. */
@@ -122,25 +122,40 @@ export class SwarmController {
     this._recalcFormationForGroup('A', cx, cy);
   }
 
-  /** Split drones evenly between group A and B (alternating). */
+  /**
+   * Split drones into up to 4 groups by role:
+   *   A = standard, B = interceptor, C = gunship, D = sentinel
+   * If a role has no drones the group stays empty (Tab skips it).
+   */
   splitGroups() {
+    const ROLE_GROUP = { standard: 'A', interceptor: 'B', gunship: 'C', sentinel: 'D' };
     const alive = this.drones.filter(d => !d.dead);
-    alive.forEach((d, i) => { d._group = i % 2 === 0 ? 'A' : 'B'; });
-    if (this._targetA) this._recalcFormationForGroup('A', this._targetA.x, this._targetA.y);
-    if (this._targetB) this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
-    else {
-      // Default group B target: same as group A but shifted
-      const tA = this._targetA ?? { x: this.canvas.width / 2, y: this.canvas.height / 2 };
-      this._targetB = { x: tA.x + 60, y: tA.y + 60 };
-      this._recalcFormationForGroup('B', this._targetB.x, this._targetB.y);
+    // Assign each drone to its role-group; unknown roles go to A
+    alive.forEach(d => { d._group = ROLE_GROUP[d.role] ?? 'A'; });
+
+    // Set default targets for groups that don't have one yet
+    const base = this._targetA ?? { x: this.canvas.width / 2, y: this.canvas.height / 2 };
+    const offsets = { A: { x: 0, y: 0 }, B: { x: 80, y: -40 }, C: { x: -80, y: -40 }, D: { x: 0, y: -90 } };
+    for (const grp of ['A', 'B', 'C', 'D']) {
+      const key = `_target${grp}`;
+      if (!this[key]) this[key] = { x: base.x + offsets[grp].x, y: base.y + offsets[grp].y };
+      if (this.drones.some(d => !d.dead && d._group === grp)) {
+        this._recalcFormationForGroup(grp, this[key].x, this[key].y);
+      }
     }
   }
 
-  /** Merge both groups back into A. */
+  /** Merge all groups back into A. */
   mergeGroups() {
     this.drones.forEach(d => { d._group = 'A'; });
     this.activeGroup = 'A';
     if (this._targetA) this._recalcFormationForGroup('A', this._targetA.x, this._targetA.y);
+  }
+
+  /** Returns the list of group IDs that have at least one living drone. */
+  activeGroups() {
+    const alive = this.drones.filter(d => !d.dead);
+    return ['A', 'B', 'C', 'D'].filter(g => alive.some(d => d._group === g));
   }
 
   /** Add n drones of the given role (default 'standard') */

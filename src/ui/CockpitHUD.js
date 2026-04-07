@@ -497,25 +497,45 @@ export class CockpitHUD {
 
     const objs  = g.objectives;
     const all   = g.playerSwarm.drones;
-    const gA    = all.filter(d => !d.dead && d._group !== 'B');
-    const gB    = all.filter(d => !d.dead && d._group === 'B');
     const kia   = all.filter(d => d.dead).length;
     const avgHp = arr => arr.length === 0 ? 0
       : arr.reduce((s, d) => s + d.hp / (d.maxHp || 1), 0) / arr.length;
     const hpColor = p => p > 0.6 ? '#00e87a' : p > 0.3 ? '#ffaa00' : '#ff3333';
-    const form  = (g.playerSwarm.currentFormation ?? 'circle').toUpperCase();
+    const form  = (g.playerSwarm.currentFormation ?? 'watch').toUpperCase();
+    const activeGrp = g.playerSwarm.activeGroup;
 
-    // Fixed positions: objective nodes top, group nodes bottom
+    // Build group data for each letter that has alive drones
+    const GROUP_META = {
+      A: { label: 'ALPHA',   color: '#00e87a' },
+      B: { label: 'BRAVO',   color: '#00ccff' },
+      C: { label: 'CHARLIE', color: '#ffaa00' },
+      D: { label: 'DELTA',   color: '#ff6688' },
+    };
+    const rawGroups = ['A','B','C','D'].map(g2 => ({
+      id:     g2,
+      drones: all.filter(d => !d.dead && d._group === g2),
+      ...GROUP_META[g2],
+    })).filter(g2 => g2.drones.length > 0);
+
+    // Evenly space group nodes along the bottom of the SVG (238px wide)
+    const nodeY = 94;
+    const spacing = rawGroups.length > 1 ? 200 / (rawGroups.length - 1) : 0;
+    const startX = rawGroups.length === 1 ? 119 : 19 + spacing * 0;
+    const grpData = rawGroups.map((g2, i) => ({
+      ...g2,
+      x:  rawGroups.length === 1 ? 119 : 19 + i * spacing,
+      y:  nodeY,
+      hp: avgHp(g2.drones),
+      form: g2.id === activeGrp ? form : '',
+      active: g2.id === activeGrp,
+    }));
+
+    // Fixed positions: objective nodes top
     const OBJ_POS = [
       { x: 40,  y: 22 },
       { x: 119, y: 22 },
       { x: 198, y: 22 },
     ];
-    const grpData = [];
-    if (gA.length > 0)
-      grpData.push({ x: gB.length > 0 ? 74 : 119, y: 94, label: 'ALPHA', drones: gA, hp: avgHp(gA), form });
-    if (gB.length > 0)
-      grpData.push({ x: gA.length > 0 ? 164 : 119, y: 94, label: 'BRAVO', drones: gB, hp: avgHp(gB), form: '' });
 
     let html = `<defs>
       <filter id="gw" x="-60%" y="-60%" width="220%" height="220%">
@@ -570,22 +590,29 @@ export class CockpitHUD {
       }
     }
 
-    // Group nodes — aircraft chevron shape
+    // Group nodes — aircraft chevron shape with per-group color
     for (const grp of grpData) {
       const cx  = grp.x, cy = grp.y;
       const col = hpColor(grp.hp);
+      const accentCol = grp.color;   // role color ring
+      // Active group: outer glow ring
+      if (grp.active) {
+        html += `<circle cx="${cx}" cy="${cy - 4}" r="13"
+          fill="none" stroke="${accentCol}" stroke-width="1"
+          opacity="0.45" stroke-dasharray="2,3"/>`;
+      }
       html += `
         <polygon points="${cx},${cy-11} ${cx-7},${cy+3} ${cx},${cy} ${cx+7},${cy+3}"
           fill="${col}" opacity="0.82" filter="url(#gw)"/>
         <text x="${cx}" y="${cy + 18}" text-anchor="middle"
-          font-size="7" fill="${col}" font-family="monospace"
+          font-size="7" fill="${accentCol}" font-family="monospace"
           font-weight="bold">${grp.label}</text>
         <text x="${cx}" y="${cy + 27}" text-anchor="middle"
           font-size="7" fill="${col}" font-family="monospace"
           opacity="0.75">×${grp.drones.length} ${Math.floor(grp.hp * 100)}%</text>`;
       if (grp.form) {
         html += `<text x="${cx}" y="${cy + 36}" text-anchor="middle"
-          font-size="6" fill="rgba(0,200,80,0.40)" font-family="monospace">${grp.form}</text>`;
+          font-size="6" fill="${accentCol}" font-family="monospace" opacity="0.55">${grp.form}</text>`;
       }
     }
 

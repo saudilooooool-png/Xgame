@@ -317,12 +317,17 @@ export class Game {
     });
   }
 
-  // ── Group A/B controls ────────────────────────────────────────────────────
+  // ── Group A/B/C/D controls ────────────────────────────────────────────────
 
   _toggleGroup() {
     if (!this.running) return;
-    this.playerSwarm.activeGroup = this.playerSwarm.activeGroup === 'A' ? 'B' : 'A';
-    this._showAlert(`المجموعة ${this.playerSwarm.activeGroup} نشطة`);
+    const occupied = this.playerSwarm.activeGroups();
+    if (occupied.length < 2) return;                     // nothing to cycle
+    const cur = this.playerSwarm.activeGroup;
+    const idx = occupied.indexOf(cur);
+    this.playerSwarm.activeGroup = occupied[(idx + 1) % occupied.length];
+    const NAMES = { A: 'ALPHA', B: 'BRAVO', C: 'CHARLIE', D: 'DELTA' };
+    this._showAlert(`المجموعة ${NAMES[this.playerSwarm.activeGroup] ?? this.playerSwarm.activeGroup} نشطة`);
   }
 
   // ── EMP trap placement ────────────────────────────────────────────────────
@@ -396,10 +401,11 @@ export class Game {
     const allInA = this.playerSwarm.drones.every(d => d._group === 'A');
     if (allInA) {
       this.playerSwarm.splitGroups();
-      this._showAlert('السرب مقسّم: A + B  (Tab للتبديل)');
+      const occupied = this.playerSwarm.activeGroups();
+      this._showAlert(`السرب مقسّم إلى ${occupied.length} مجموعات (Tab للتبديل)`);
     } else {
       this.playerSwarm.mergeGroups();
-      this._showAlert('السرب مدمج في المجموعة A');
+      this._showAlert('السرب مدمج في المجموعة ALPHA');
     }
   }
 
