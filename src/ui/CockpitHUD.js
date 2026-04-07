@@ -54,6 +54,12 @@ export class CockpitHUD {
     panel.innerHTML = `
       <div class="cf-panel-header">▣ CMD INTEL</div>
 
+      <div id="cf-cmd-danger" class="cf-cmd-danger hidden">
+        <span class="cf-cmd-icon">★</span>
+        <span class="cf-cmd-text">القائد في الميدان</span>
+        <span class="cf-cmd-sub">COMMANDER ACTIVE</span>
+      </div>
+
       <div class="cf-section">
         <div class="cf-section-label">OBJECTIVES</div>
         <div id="cf-objectives"></div>
@@ -214,6 +220,7 @@ export class CockpitHUD {
     this._updateObjectives(g);
     this._updateCommandWeb(g);
     this._updateThreat(g);
+    this._updateCommanderDanger(g);
     this._updateFooter(g);
     this._updateRadarLabel(g);
     this._updateCommandCubes(g);
@@ -672,6 +679,15 @@ export class CockpitHUD {
     const dir = CockpitHUD._SECTOR_DIRS[hotIdx] || '';
     advisory.innerHTML = `<span class="cf-warn">⚠ ${dir}</span><br>
       <span class="cf-dim">${topRole ? topRole[0].toUpperCase() : ''} ×${total}</span>`;
+  }
+
+  // ── Commander danger banner ──────────────────────────────────────────────
+
+  _updateCommanderDanger(g) {
+    const el = document.getElementById('cf-cmd-danger');
+    if (!el) return;
+    const cmdAlive = g.enemySwarm?.drones.some(d => !d.dead && d.role === 'commander') ?? false;
+    el.classList.toggle('hidden', !cmdAlive);
   }
 
   // ── Footer ───────────────────────────────────────────────────────────────

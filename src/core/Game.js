@@ -584,6 +584,16 @@ export class Game {
     this.playerSwarm.update(dt, this.enemySwarm.drones);
     this.enemySwarm.update(dt, this.playerSwarm.drones);
 
+    // ── Commander spawn alert ────────────────────────────────────────────────
+    {
+      const cmdNow = this.enemySwarm.drones.some(d => !d.dead && d.role === 'commander');
+      if (cmdNow && !this._cmdWasAlive) {
+        this._showAlert('★ القائد العدو دخل الميدان — أسقطه!');
+        this.shake.trigger(0.4);
+      }
+      this._cmdWasAlive = cmdNow;
+    }
+
     // ── Boss enrage alert ────────────────────────────────────────────────────
     if (this.enemySwarm._justEnraged) {
       this._showAlert('💢 البوس هائج! سرعة مضاعفة — احذر!');
@@ -1718,6 +1728,9 @@ export class Game {
     // 3b. Smart targeting reticle
     this._drawTargetingReticle(ctx, W, H);
 
+    // 3c. Commander danger ring (always visible when enemy commander alive)
+    this._drawCommanderDangerRing(ctx);
+
     // 4. FX: vignette + hit flash + score popups + kill feed
     this._drawFX(W, H);
 
@@ -1794,6 +1807,48 @@ export class Game {
     }
     ctx.setLineDash([]);
     ctx.restore();
+  }
+
+  _drawCommanderDangerRing(ctx) {
+    const commanders = this.enemySwarm.drones.filter(d => !d.dead && d.role === 'commander');
+    if (!commanders.length) return;
+
+    const t = Date.now() / 1000;
+    for (const cmd of commanders) {
+      ctx.save();
+      // Three expanding concentric rings with phase offset
+      for (let i = 0; i < 3; i++) {
+        const phase  = (t * 1.8 + i * 0.55) % 1;          // 0→1 loop
+        const radius = 28 + phase * 52;                     // 28→80 px
+        const alpha  = (1 - phase) * 0.55;
+        ctx.beginPath();
+        ctx.arc(cmd.x, cmd.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,130,0,${alpha.toFixed(2)})`;
+        ctx.lineWidth   = 2 - phase * 1.2;
+        ctx.shadowColor = '#ff8800';
+        ctx.shadowBlur  = 14 * (1 - phase);
+        ctx.stroke();
+      }
+
+      // Solid inner ring (locked-on indicator)
+      const pulse = 0.7 + 0.3 * Math.sin(t * 5);
+      ctx.beginPath();
+      ctx.arc(cmd.x, cmd.y, 24, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,160,0,${(pulse * 0.9).toFixed(2)})`;
+      ctx.lineWidth   = 1.5;
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur  = 12;
+      ctx.stroke();
+
+      // Label
+      ctx.font        = 'bold 11px monospace';
+      ctx.textAlign   = 'center';
+      ctx.fillStyle   = `rgba(255,180,0,${(0.5 + 0.5 * pulse).toFixed(2)})`;
+      ctx.shadowColor = '#ff6600';
+      ctx.shadowBlur  = 10;
+      ctx.fillText('★ القائد', cmd.x, cmd.y - 30);
+      ctx.restore();
+    }
   }
 
   _drawAlertBanner() {
