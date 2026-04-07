@@ -157,6 +157,11 @@ export class Game {
     this._waveWipe            = 0;    // 0-1; plays before upgrade screen
     this._waveCompletionPulse = 0;    // 0-1; green flourish on objectives
 
+    // ── Cinematic combo visuals ───────────────────────────────────────────────
+    this._comboZoom       = 1.0;   // actual CSS zoom applied to Three.js canvas
+    this._comboPrevTier   = 0;     // last combo tier to detect tier-up moment
+    this._consecutivePerfect = 0;  // consecutive perfect waves counter
+
     // ── Enemy base ────────────────────────────────────────────────────────────
     this._enemyBase        = null;  // EnemyBase instance (wave 3+)
     this._baseBonusWaves   = 0;     // waves remaining with enemy-count reduction
@@ -228,7 +233,51 @@ export class Game {
     // Canvas click — capture phase so we intercept before Commander
     this.canvas.el.addEventListener('click', (e) => this._onCanvasClick(e), true);
 
+    // ── Cinematic overlay elements ────────────────────────────────────────────
+    this._injectCinematicDOM();
+
     new StartScreen().show().then(() => this._runMissionSetup());
+  }
+
+  _showFlawlessBanner(consecutive) {
+    const el = document.getElementById('flawless-banner');
+    if (!el) return;
+    const streak = document.getElementById('fb-streak');
+    if (streak) {
+      streak.textContent = consecutive >= 2
+        ? `${consecutive} موجات مثالية متتالية 🔥`
+        : '+20% نقاط • +1 شحنة رادار';
+    }
+    el.classList.remove('hidden', 'fb-exit');
+    el.classList.add('fb-enter');
+    // Auto-hide after 2.8s
+    clearTimeout(this._flawlessTimer);
+    this._flawlessTimer = setTimeout(() => {
+      el.classList.remove('fb-enter');
+      el.classList.add('fb-exit');
+      setTimeout(() => el.classList.add('hidden'), 600);
+    }, 2800);
+  }
+
+  _injectCinematicDOM() {
+    const root = document.getElementById('game-container');
+
+    // Golden border glow — shown at combo 8+
+    const border = document.createElement('div');
+    border.id = 'combo-border';
+    border.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:12;
+      opacity:0;transition:opacity 0.25s;`;
+    root.appendChild(border);
+
+    // FLAWLESS WAVE banner
+    const flawless = document.createElement('div');
+    flawless.id = 'flawless-banner';
+    flawless.className = 'flawless-banner hidden';
+    flawless.innerHTML = `
+      <div class="fb-title">FLAWLESS WAVE</div>
+      <div class="fb-sub" id="fb-streak"></div>
+    `;
+    root.appendChild(flawless);
   }
 
   _buildObjectives() {
@@ -275,6 +324,8 @@ export class Game {
     this._slowMo     = 0;
     this._timeScale  = 1;
     this._waveWipe   = 0;
+    this._comboZoom      = 1.0;
+    this._comboPrevTier  = 0;
     this._enemyBase        = null;
     this._baseBonusWaves   = 0;
     this._orbitalScan      = 0;
@@ -1101,18 +1152,25 @@ export class Game {
     }
 
     // ── Streak tracking ──────────────────────────────────────────────────────
+    const flawless = this._perfectWave && this.waveLosses === 0;
     if (this._perfectWave) {
       this._streak++;
       if (this._streak > this._maxStreak) this._maxStreak = this._streak;
-      if (this._streak >= 2) {
-        this._showAlert(`🔥 سلسلة مثالية ×${this._streak}!`);
-      }
       // Perfect wave earns a sonar charge (capped at max)
-      if (this._sonarCharges < this.SONAR_MAX) {
-        this._sonarCharges++;
-      }
+      if (this._sonarCharges < this.SONAR_MAX) this._sonarCharges++;
     } else {
       this._streak = 0;
+    }
+
+    // ── FLAWLESS WAVE (zero drone losses + zero objective hits) ───────────────
+    if (flawless) {
+      this._consecutivePerfect = (this._consecutivePerfect ?? 0) + 1;
+      // Score bonus: +20% of wave base for next wave scoring
+      this._flawlessScoreBonus  = (this._flawlessScoreBonus ?? 0) + 0.20;
+      this._showFlawlessBanner(this._consecutivePerfect);
+    } else {
+      this._consecutivePerfect = 0;
+      this._flawlessScoreBonus  = 0;
     }
 
     // Track boss waves cleared
@@ -1124,7 +1182,8 @@ export class Game {
     }
     this._checkVetPromotions();
 
-    this.score += Math.round(100 * this.wave * this._scoreMulti);
+    const flawlessBonus = this._flawlessScoreBonus ?? 0;
+    this.score += Math.round(100 * this.wave * this._scoreMulti * (1 + flawlessBonus));
     this._awaitingUpgrade = true;
     this._comboCount = 0;   // reset combo on wave clear
 
@@ -1215,7 +1274,51 @@ export class Game {
 
   // ── Phase-1 FX update ──────────────────────────────────────────────────────
 
+  _updateCinematicCombo(dt) {
+    const cnt  = this._comboCount;
+    const tier = cnt >= 8 ? 3 : cnt >= 5 ? 2 : cnt >= 3 ? 1 : 0;
+
+    // Detect tier-up moment — announce it
+    if (tier > this._comboPrevTier) {
+      const labels = ['', '', '× COMBO 5 ×', '× COMBO 8 ×'];
+      if (labels[tier]) this._showAlert(labels[tier]);
+    }
+    this._comboPrevTier = cnt > 0 ? tier : 0;
+
+    // Target zoom: 1.0 → 1.06 at tier2 → 1.12 at tier3
+    const zoomTarget = tier >= 3 ? 1.12 : tier >= 2 ? 1.06 : 1.0;
+    this._comboZoom += (zoomTarget - this._comboZoom) * Math.min(1, dt * 4);
+
+    // Apply CSS to Three.js canvas
+    const cv = document.getElementById('three-game');
+    if (cv) {
+      const z   = this._comboZoom.toFixed(4);
+      const sat = tier >= 3 ? 0.45 : tier >= 2 ? 0.65 : 1.0;
+      // Chromatic aberration at tier 3 via drop-shadow trick
+      const ca  = tier >= 3
+        ? `drop-shadow(-3px 0 0 rgba(255,30,30,0.55)) drop-shadow(3px 0 0 rgba(30,80,255,0.55))`
+        : '';
+      cv.style.transform      = `scale(${z}) translateZ(0)`;
+      cv.style.transformOrigin = '50% 50%';
+      cv.style.filter          = `saturate(${sat}) ${ca}`.trim();
+    }
+
+    // Golden border glow at tier 3
+    const border = document.getElementById('combo-border');
+    if (border) {
+      if (tier >= 3) {
+        const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 180);
+        border.style.opacity  = (pulse * 0.9).toFixed(2);
+        border.style.boxShadow = `inset 0 0 80px 20px rgba(255,160,0,${(pulse * 0.5).toFixed(2)})`;
+      } else {
+        border.style.opacity = '0';
+      }
+    }
+  }
+
   _updateFX(dt) {
+    this._updateCinematicCombo(dt);
+
     // Score popups: rise and fade
     for (const p of this._scorePopups) p.ttl -= dt;
     this._scorePopups = this._scorePopups.filter(p => p.ttl > 0);
