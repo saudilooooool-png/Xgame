@@ -46,7 +46,7 @@ export class ThreeScene {
     this._renderer.shadowMap.enabled = true;
     this._renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
     this._renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-    this._renderer.toneMappingExposure = 1.05;
+    this._renderer.toneMappingExposure = 2.2;
 
     const cv = this._renderer.domElement;
     cv.id = 'three-game';
@@ -67,9 +67,9 @@ export class ThreeScene {
 
   _initScene() {
     this._scene = new THREE.Scene();
-    this._scene.background = new THREE.Color(0x020810);
-    // Slightly denser fog for atmosphere
-    this._scene.fog = new THREE.FogExp2(0x020810, 0.00032);
+    this._scene.background = new THREE.Color(0x0c1f14);
+    // Lighter fog so far objects remain visible
+    this._scene.fog = new THREE.FogExp2(0x0c1f14, 0.00015);
   }
 
   _initCamera() {
@@ -93,11 +93,11 @@ export class ThreeScene {
   _initLights() {
     const W = this._W, H = this._H;
 
-    // ── Ambient (dark green-tinted) ──────────────────────────────────────
-    this._scene.add(new THREE.AmbientLight(0x000f06, 4.5));
+    // ── Ambient (military green — clearly visible base illumination) ─────
+    this._scene.add(new THREE.AmbientLight(0x2a5c30, 3.5));
 
-    // ── Moonlight / directional (cold, sharp shadows) ─────────────────────
-    const moon = new THREE.DirectionalLight(0x8ac8b8, 1.4);
+    // ── Moonlight / directional (bright cool light, hard shadows) ────────
+    const moon = new THREE.DirectionalLight(0xb8ddd0, 3.8);
     moon.position.set(W * 0.25, 1600, -H * 0.4);
     moon.castShadow = true;
     moon.shadow.mapSize.set(2048, 2048);
@@ -109,11 +109,16 @@ export class ThreeScene {
     moon.shadow.camera.bottom = -H;
     this._scene.add(moon);
 
-    // ── Hemisphere (sky dark, ground dark green glow) ────────────────────
-    this._scene.add(new THREE.HemisphereLight(0x000000, 0x001408, 1.2));
+    // ── Secondary fill from opposite side (no hard shadows) ──────────────
+    const fill = new THREE.DirectionalLight(0x3a7a50, 1.8);
+    fill.position.set(-W * 0.4, 800, H * 0.6);
+    this._scene.add(fill);
+
+    // ── Hemisphere (sky dim blue-grey, ground warm green) ────────────────
+    this._scene.add(new THREE.HemisphereLight(0x223344, 0x3d6b2f, 2.4));
 
     // ── Green instrument-glow fill (cockpit screen reflection) ───────────
-    const instrFill = new THREE.PointLight(0x00e87a, 0.7, H * 2.2);
+    const instrFill = new THREE.PointLight(0x00e87a, 1.2, H * 2.4);
     instrFill.position.set(W / 2, 60, H * 0.95);
     this._scene.add(instrFill);
   }
@@ -123,33 +128,33 @@ export class ThreeScene {
   _buildGround() {
     const W = this._W, H = this._H;
 
-    // ── Ground plane — dark military terrain (brownish-green) ────────────
+    // ── Ground plane — visible military terrain green ─────────────────────
     const groundGeo = new THREE.PlaneGeometry(W * 2, H * 2, 1, 1);
     groundGeo.rotateX(-Math.PI / 2);
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x1a2410, roughness: 0.95, metalness: 0.04
+      color: 0x2e5422, roughness: 0.90, metalness: 0.04
     });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.position.set(W / 2, -1, H / 2);
     ground.receiveShadow = true;
     this._scene.add(ground);
 
-    // ── Tactical grid (major cells) ──────────────────────────────────────
+    // ── Tactical grid (major cells — clearly visible green lines) ─────────
     const gridSize = Math.max(W, H) * 1.7;
-    const gridMain = new THREE.GridHelper(gridSize, 70, 0x003318, 0x001408);
+    const gridMain = new THREE.GridHelper(gridSize, 70, 0x3a9960, 0x1d6638);
     gridMain.position.set(W / 2, 0.5, H / 2);
     this._scene.add(gridMain);
 
-    // ── Fine grid (minor cells — subtle) ────────────────────────────────
-    const gridFine = new THREE.GridHelper(gridSize, 280, 0x001008, 0x000804);
+    // ── Fine grid (minor cells — subtle hint) ────────────────────────────
+    const gridFine = new THREE.GridHelper(gridSize, 280, 0x0d3318, 0x081d0c);
     gridFine.position.set(W / 2, 0.3, H / 2);
     this._scene.add(gridFine);
 
-    // ── Sector intersection rings ──────────────────────────────────────
-    const ringGeo = new THREE.RingGeometry(60, 65, 48);
+    // ── Sector intersection rings — visible tactical markers ──────────────
+    const ringGeo = new THREE.RingGeometry(60, 66, 48);
     ringGeo.rotateX(-Math.PI / 2);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x003a1a, side: THREE.DoubleSide });
-    const xhMat   = new THREE.LineBasicMaterial({ color: 0x002510 });
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x1a7a3a, side: THREE.DoubleSide });
+    const xhMat   = new THREE.LineBasicMaterial({ color: 0x1a6632 });
 
     for (let xi = 0; xi <= 4; xi++) {
       for (let zi = 0; zi <= 3; zi++) {
@@ -161,14 +166,14 @@ export class ThreeScene {
         // Cross-hair lines
         const h = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(-50, 1, 0), new THREE.Vector3(50, 1, 0)
+            new THREE.Vector3(-55, 1, 0), new THREE.Vector3(55, 1, 0)
           ]), xhMat);
         h.position.set(px, 1, pz);
         this._scene.add(h);
 
         const v = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, 1, -50), new THREE.Vector3(0, 1, 50)
+            new THREE.Vector3(0, 1, -55), new THREE.Vector3(0, 1, 55)
           ]), xhMat);
         v.position.set(px, 1, pz);
         this._scene.add(v);
@@ -187,12 +192,12 @@ export class ThreeScene {
     const rng = (a, b) => a + Math.random() * (b - a);
 
     const blockMat = new THREE.MeshStandardMaterial({
-      color: 0x030e06, roughness: 0.92, metalness: 0.12
+      color: 0x1a3a1c, roughness: 0.88, metalness: 0.18
     });
     const winMat = new THREE.MeshStandardMaterial({
-      color: 0x001205,
-      emissive: new THREE.Color(0x002810),
-      emissiveIntensity: 0.6,
+      color: 0x003a18,
+      emissive: new THREE.Color(0x00cc55),
+      emissiveIntensity: 1.4,
       transparent: true, opacity: 0.85
     });
 
@@ -298,7 +303,7 @@ export class ThreeScene {
     // Hexagonal flat body
     const body = new THREE.Mesh(
       new THREE.CylinderGeometry(8, 10, 3.5, 6),
-      new THREE.MeshStandardMaterial({ color: 0x092010, metalness: 0.88, roughness: 0.22 })
+      new THREE.MeshStandardMaterial({ color: 0x1a4a28, metalness: 0.88, roughness: 0.22 })
     );
     g.add(body);
 
@@ -335,13 +340,13 @@ export class ThreeScene {
     const boss    = role === 'boss' || role === 'commander';
     const kamikaze = role === 'kamikaze';
     const s       = boss ? 2.4 : kamikaze ? 0.65 : 1.0;
-    const bodyCol = boss ? 0x280000 : 0x180000;
+    const bodyCol = boss ? 0x4a0800 : 0x3a0a0a;
     const glowCol = boss ? 0xff6600 : kamikaze ? 0xff00aa : 0xff2200;
 
     // Angular octahedron body
     const body = new THREE.Mesh(
       new THREE.OctahedronGeometry(10 * s),
-      new THREE.MeshStandardMaterial({ color: bodyCol, metalness: 0.55, roughness: 0.55 })
+      new THREE.MeshStandardMaterial({ color: bodyCol, metalness: 0.55, roughness: 0.55, emissive: glowCol, emissiveIntensity: 0.3 })
     );
     g.add(body);
 
@@ -372,7 +377,7 @@ export class ThreeScene {
     // Octagonal base platform
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(52, 58, 9, 8),
-      new THREE.MeshStandardMaterial({ color: 0x060f09, metalness: 0.65, roughness: 0.5 })
+      new THREE.MeshStandardMaterial({ color: 0x1c3824, metalness: 0.65, roughness: 0.5 })
     );
     base.position.y = 4.5;
     base.receiveShadow = true;
@@ -382,7 +387,7 @@ export class ThreeScene {
     const tH = 160;
     const tower = new THREE.Mesh(
       new THREE.CylinderGeometry(24, 30, tH, 8),
-      new THREE.MeshStandardMaterial({ color: 0x081408, metalness: 0.78, roughness: 0.38 })
+      new THREE.MeshStandardMaterial({ color: 0x1a3020, metalness: 0.78, roughness: 0.38 })
     );
     tower.position.y = tH / 2 + 9;
     tower.castShadow  = true;
@@ -391,8 +396,8 @@ export class ThreeScene {
 
     // Health ring (changes colour with HP%)
     const healthRing = new THREE.Mesh(
-      new THREE.TorusGeometry(40, 3.5, 8, 44),
-      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 1.6 })
+      new THREE.TorusGeometry(44, 4.5, 8, 44),
+      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 3.0 })
     );
     healthRing.rotation.x = Math.PI / 2;
     healthRing.position.y = tH + 12;
@@ -400,8 +405,8 @@ export class ThreeScene {
 
     // Top beacon sphere
     const beacon = new THREE.Mesh(
-      new THREE.SphereGeometry(7, 12, 8),
-      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 2.8 })
+      new THREE.SphereGeometry(9, 12, 8),
+      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 4.5 })
     );
     beacon.position.y = tH + 28;
     g.add(beacon);
