@@ -54,10 +54,12 @@ export class ThreeScene {
 
     const container  = document.getElementById('game-container');
     const gameCanvas = container.querySelector('canvas');
-    // Hide the original 2-D canvas — logic keeps running, visuals move to WebGL
+    // Place WebGL canvas below the 2-D canvas (z-index 10).
+    // The 2-D canvas becomes a transparent overlay (z-index 15, pointer-events none)
+    // so lasers, particles, score popups, combo text etc. stay visible.
     if (gameCanvas) {
-      gameCanvas.style.visibility = 'hidden';
-      container.insertBefore(cv, gameCanvas.nextSibling);
+      gameCanvas.style.cssText = 'position:fixed;inset:0;z-index:15;pointer-events:none;';
+      container.insertBefore(cv, gameCanvas);   // WebGL sits behind the 2-D canvas
     } else {
       container.prepend(cv);
     }

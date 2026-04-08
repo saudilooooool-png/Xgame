@@ -278,6 +278,57 @@ export class Game {
       <div class="fb-sub" id="fb-streak"></div>
     `;
     root.appendChild(flawless);
+
+    // ── Controls tutorial overlay ──────────────────────────────────────────
+    const tut = document.createElement('div');
+    tut.id = 'ctrl-tutorial';
+    tut.innerHTML = `
+      <div class="ct-box">
+        <div class="ct-title">⬡ كيف تلعب — HOW TO PLAY</div>
+        <div class="ct-main-hint">🖱 حرّك الفأرة / إصبعك → السرب يتبع ويهاجم تلقائياً</div>
+        <div class="ct-row"><span class="ct-key">Z</span><span class="ct-desc">وتش WATCH — دورية متوازنة (دفاعي)</span></div>
+        <div class="ct-row"><span class="ct-key">C</span><span class="ct-desc">خنجر DAGGER — هجوم مركّز، يخترق الصفوف</span></div>
+        <div class="ct-row"><span class="ct-key">V</span><span class="ct-desc">درع SHIELD — قوس دفاعي يحمي المدن</span></div>
+        <div class="ct-row"><span class="ct-key">B</span><span class="ct-desc">شبكة NET — تطويق واسع يُحاصر الأعداء</span></div>
+        <div class="ct-row"><span class="ct-key">N</span><span class="ct-desc">نقطة POINT — كتلة كثيفة، يكشف المتخفّين</span></div>
+        <div class="ct-row"><span class="ct-key">Tab</span><span class="ct-desc">تبديل بين المجموعات A→B→C→D</span></div>
+        <div class="ct-row"><span class="ct-key">S</span><span class="ct-desc">تقسيم / دمج الأسراب حسب الدور</span></div>
+        <div class="ct-row"><span class="ct-key">X</span><span class="ct-desc">وضع فخ EMP  ·  <span class="ct-key">G</span> بناء برج Gatling</span></div>
+        <button class="ct-dismiss">▶ ابدأ — انقر أي مكان للإغلاق</button>
+      </div>
+    `;
+    tut.addEventListener('click', () => tut.classList.add('hidden'));
+    root.appendChild(tut);
+    this._ctrlTutorial = tut;
+
+    // ── Wave phase bar ─────────────────────────────────────────────────────
+    const pb = document.createElement('div');
+    pb.id = 'phase-bar';
+    pb.textContent = 'READY';
+    root.appendChild(pb);
+    this._phaseBar = pb;
+  }
+
+  _updatePhaseBar() {
+    const pb = this._phaseBar;
+    if (!pb) return;
+    if (this._deploymentPhase > 0) {
+      pb.textContent = `📍 DEPLOYMENT  ${Math.ceil(this._deploymentPhase)}s — SPACE to skip`;
+      pb.className = 'phase-deploy';
+    } else if (this._waveCountdown > 0) {
+      pb.textContent = `⚠ COMBAT IN  ${Math.ceil(this._waveCountdown)}`;
+      pb.className = 'phase-countdown';
+    } else if (this._awaitingUpgrade) {
+      pb.textContent = `✓ WAVE ${this.wave} CLEARED`;
+      pb.className = '';
+    } else if (this.enemySwarm?.drones?.length > 0 || this.enemySwarm?.spawning) {
+      const alive = this.enemySwarm.drones.filter(d => !d.dead).length;
+      pb.textContent = `⚔ WAVE ${this.wave} COMBAT — ${alive} remaining`;
+      pb.className = 'phase-combat';
+    } else {
+      pb.textContent = `WAVE ${this.wave}`;
+      pb.className = '';
+    }
   }
 
   _buildObjectives() {
@@ -635,6 +686,7 @@ export class Game {
         // Start 3-2-1 countdown before spawning
         if (this._waveCountdown <= 0) this._waveCountdown = 3;
       }
+      this._updatePhaseBar();
       return;  // skip combat, enemy AI, hazards during deployment
     }
 
@@ -653,6 +705,7 @@ export class Game {
         this._pendingEnemyOverride = undefined;
         this._showAlert('⚔ الهجوم!');
       }
+      this._updatePhaseBar();
       return;
     }
 
@@ -810,6 +863,7 @@ export class Game {
     this.commander.updateRecommendation();
     this.cockpitHUD.update(dt);
     this.mobileControls.update(this.playerSwarm.currentFormation);
+    this._updatePhaseBar();
   }
 
   // ── Side missions ─────────────────────────────────────────────────────────
@@ -1837,6 +1891,7 @@ export class Game {
     // Draw enemy base (above objectives, below swarms)
     if (this._enemyBase) this._enemyBase.draw(ctx);
     this.commander.drawTargetZone(ctx);
+    this._drawAttackRangeRing(ctx);
     this._drawLasers();
     this.playerSwarm.draw(ctx);
     this.enemySwarm.draw(ctx);
@@ -2022,6 +2077,36 @@ export class Game {
       ctx.lineTo(l.x2, l.y2);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  _drawAttackRangeRing(ctx) {
+    // Draw a dashed range ring around the swarm centroid to show fire range
+    if (!this.playerSwarm?.drones?.length) return;
+    const alive = this.playerSwarm.drones.filter(d => !d.dead);
+    if (!alive.length) return;
+
+    // Compute centroid
+    let cx = 0, cy = 0;
+    for (const d of alive) { cx += d.x; cy += d.y; }
+    cx /= alive.length; cy /= alive.length;
+
+    // Fire range from first drone (they're all equal)
+    const fireRange = alive[0].fireRange ?? 180;
+    const t = Date.now() / 1000;
+    const alpha = 0.15 + 0.05 * Math.sin(t * 1.5);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([8, 10]);
+    ctx.shadowColor = '#00ff88';
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, fireRange, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
   }
 
