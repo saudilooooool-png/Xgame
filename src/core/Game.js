@@ -32,6 +32,7 @@ import { CockpitHUD }     from '../ui/CockpitHUD.js';
 import { CockpitShell }   from '../ui/CockpitShell.js';
 import { ThreeScene }     from '../rendering/ThreeScene.js';
 import { MobileControls } from '../ui/MobileControls.js';
+import { t, onLangChange } from '../data/Locale.js';
 
 export class Game {
   constructor() {
@@ -282,21 +283,23 @@ export class Game {
     // ── Controls tutorial overlay ──────────────────────────────────────────
     const tut = document.createElement('div');
     tut.id = 'ctrl-tutorial';
-    tut.innerHTML = `
+    const _renderTut = () => `
       <div class="ct-box">
-        <div class="ct-title">⬡ كيف تلعب — HOW TO PLAY</div>
-        <div class="ct-main-hint">🖱 حرّك الفأرة / إصبعك → السرب يتبع ويهاجم تلقائياً</div>
-        <div class="ct-row"><span class="ct-key">Z</span><span class="ct-desc">وتش WATCH — دورية متوازنة (دفاعي)</span></div>
-        <div class="ct-row"><span class="ct-key">C</span><span class="ct-desc">خنجر DAGGER — هجوم مركّز، يخترق الصفوف</span></div>
-        <div class="ct-row"><span class="ct-key">V</span><span class="ct-desc">درع SHIELD — قوس دفاعي يحمي المدن</span></div>
-        <div class="ct-row"><span class="ct-key">B</span><span class="ct-desc">شبكة NET — تطويق واسع يُحاصر الأعداء</span></div>
-        <div class="ct-row"><span class="ct-key">N</span><span class="ct-desc">نقطة POINT — كتلة كثيفة، يكشف المتخفّين</span></div>
-        <div class="ct-row"><span class="ct-key">Tab</span><span class="ct-desc">تبديل بين المجموعات A→B→C→D</span></div>
-        <div class="ct-row"><span class="ct-key">S</span><span class="ct-desc">تقسيم / دمج الأسراب حسب الدور</span></div>
-        <div class="ct-row"><span class="ct-key">X</span><span class="ct-desc">وضع فخ EMP  ·  <span class="ct-key">G</span> بناء برج Gatling</span></div>
-        <button class="ct-dismiss">▶ ابدأ — انقر أي مكان للإغلاق</button>
+        <div class="ct-title" data-i18n="tut.title">${t('tut.title')}</div>
+        <div class="ct-main-hint" data-i18n="tut.main_hint">${t('tut.main_hint')}</div>
+        <div class="ct-row"><span class="ct-key">Z</span><span class="ct-desc" data-i18n="tut.watch">${t('tut.watch')}</span></div>
+        <div class="ct-row"><span class="ct-key">C</span><span class="ct-desc" data-i18n="tut.dagger">${t('tut.dagger')}</span></div>
+        <div class="ct-row"><span class="ct-key">V</span><span class="ct-desc" data-i18n="tut.shield">${t('tut.shield')}</span></div>
+        <div class="ct-row"><span class="ct-key">B</span><span class="ct-desc" data-i18n="tut.net">${t('tut.net')}</span></div>
+        <div class="ct-row"><span class="ct-key">N</span><span class="ct-desc" data-i18n="tut.point">${t('tut.point')}</span></div>
+        <div class="ct-row"><span class="ct-key">Tab</span><span class="ct-desc" data-i18n="tut.group">${t('tut.group')}</span></div>
+        <div class="ct-row"><span class="ct-key">S</span><span class="ct-desc" data-i18n="tut.split">${t('tut.split')}</span></div>
+        <div class="ct-row"><span class="ct-key">X</span><span class="ct-desc" data-i18n="tut.emp_tower">${t('tut.emp_tower')}</span></div>
+        <button class="ct-dismiss" data-i18n="tut.dismiss">${t('tut.dismiss')}</button>
       </div>
     `;
+    tut.innerHTML = _renderTut();
+    onLangChange(() => { tut.innerHTML = _renderTut(); tut.addEventListener('click', () => tut.classList.add('hidden')); });
     tut.addEventListener('click', () => tut.classList.add('hidden'));
     root.appendChild(tut);
     this._ctrlTutorial = tut;
@@ -313,20 +316,20 @@ export class Game {
     const pb = this._phaseBar;
     if (!pb) return;
     if (this._deploymentPhase > 0) {
-      pb.textContent = `📍 DEPLOYMENT  ${Math.ceil(this._deploymentPhase)}s — SPACE to skip`;
+      pb.textContent = t('phase.deploy', { time: Math.ceil(this._deploymentPhase) });
       pb.className = 'phase-deploy';
     } else if (this._waveCountdown > 0) {
-      pb.textContent = `⚠ COMBAT IN  ${Math.ceil(this._waveCountdown)}`;
+      pb.textContent = t('phase.countdown', { time: Math.ceil(this._waveCountdown) });
       pb.className = 'phase-countdown';
     } else if (this._awaitingUpgrade) {
-      pb.textContent = `✓ WAVE ${this.wave} CLEARED`;
+      pb.textContent = t('phase.cleared', { wave: this.wave });
       pb.className = '';
     } else if (this.enemySwarm?.drones?.length > 0 || this.enemySwarm?.spawning) {
       const alive = this.enemySwarm.drones.filter(d => !d.dead).length;
-      pb.textContent = `⚔ WAVE ${this.wave} COMBAT — ${alive} remaining`;
+      pb.textContent = t('phase.combat', { wave: this.wave, n: alive });
       pb.className = 'phase-combat';
     } else {
-      pb.textContent = `WAVE ${this.wave}`;
+      pb.textContent = t('phase.wave', { wave: this.wave });
       pb.className = '';
     }
   }
@@ -554,8 +557,8 @@ export class Game {
     this.playerSwarm.setFormation(name, tz?.x, tz?.y);
     const { FORMATION_BOIDS } = this._formationBoids ?? {};
     // Lazy-import label from FORMATION_BOIDS (already in SwarmController module)
-    const labels = { watch: 'وتش  WATCH', dagger: 'خنجر DAGGER', shield: 'درع  SHIELD', net: 'شبكة NET', point: 'نقطة POINT' };
-    this._showAlert(`⬡ تشكيل: ${labels[name] ?? name.toUpperCase()}`);
+    const label = t(`f.${name}`) || name.toUpperCase();
+    this._showAlert(t('alert.formation', { name: label }));
     if (FORMATION_BOIDS[name]?.hint) this.cockpitHUD.showFormationHint(FORMATION_BOIDS[name].hint);
     // Force preview redraw immediately
     this.cockpitHUD._lastPreviewFormation = null;
@@ -614,7 +617,7 @@ export class Game {
     // ── Deployment phase: give player 12s to position before enemies spawn ──
     if (this.wave > 1) {
       this._deploymentPhase = 12;
-      this._showAlert('📍 وزّع قواتك — Space للبدء');
+      this._showAlert(t('alert.deploy'));
     } else {
       // Wave 1: no deployment pause, just start
       this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
@@ -630,7 +633,7 @@ export class Game {
     this._combatStartFlash  = 0.18;
     this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
     this._pendingEnemyOverride = undefined;
-    this._showAlert('⚔ الهجوم!');
+    this._showAlert(t('alert.attack'));
   }
 
   _loop(timestamp) {
@@ -704,7 +707,7 @@ export class Game {
         this._combatStartFlash = 0.18;
         this.enemySwarm.spawnWave(this.wave, this._pendingEnemyOverride);
         this._pendingEnemyOverride = undefined;
-        this._showAlert('⚔ الهجوم!');
+        this._showAlert(t('alert.attack'));
       }
       this.commander.updateMobileSmoothing(dt);
       this._updatePhaseBar();

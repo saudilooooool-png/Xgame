@@ -1571,3 +1571,77 @@ button:focus { outline: none; }
   100% { opacity: 1; transform: scale(1); }
 }
 .mc-wheel.mc-wheel-open::before { animation: wheelPop 0.20s cubic-bezier(0.22,1,0.36,1); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   LANGUAGE TOGGLE BUTTON (Proposal #6)
+   ════════════════════════════════════════════════════════════════════════ */
+
+.cf-lang-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 3px 9px;
+  background: rgba(0,200,100,0.12);
+  border: 1px solid rgba(0,220,110,0.35);
+  border-radius: 4px;
+  color: #00e87a;
+  font-family: 'Rajdhani', 'Tajawal', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  z-index: 5;
+}
+.cf-lang-btn:hover {
+  background: rgba(0,200,100,0.25);
+  border-color: rgba(0,220,110,0.65);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   RTL LAYOUT OVERRIDES (Arabic mode)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* Panel flips from right → left in RTL */
+[dir="rtl"] #cf-panel {
+  right: auto;
+  left: 0;
+}
+
+/* Top bar text alignment */
+[dir="rtl"] #cf-topbar {
+  direction: rtl;
+}
+
+/* Phase bar text alignment */
+[dir="rtl"] #phase-bar {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Lang toggle button moves to left side in RTL */
+[dir="rtl"] .cf-lang-btn {
+  right: auto;
+  left: 8px;
+}
+
+/* Formation hint text RTL */
+[dir="rtl"] .cf-formation-hint {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Objective cards RTL */
+[dir="rtl"] .cf-obj-card {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Tutorial box RTL */
+[dir="rtl"] .ct-box {
+  direction: rtl;
+  text-align: right;
+}
+[dir="rtl"] .ct-row {
+  flex-direction: row-reverse;
+}

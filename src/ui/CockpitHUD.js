@@ -1,4 +1,5 @@
 import { FORMATIONS, FORMATION_BOIDS } from '../ai/Formations.js';
+import { t, setLang, getLang, onLangChange } from '../data/Locale.js';
 
 /**
  * CockpitHUD — military commander DOM/canvas overlay.
@@ -39,7 +40,7 @@ export class CockpitHUD {
         <span class="cf-sep">|</span>
         <span id="cf-wave">WAVE 1</span>
         <span class="cf-sep">|</span>
-        <span id="cf-mission" class="cf-mission">DEFEND CITY GRID</span>
+        <span id="cf-mission" class="cf-mission" data-i18n="mission.defend">${t('mission.defend')}</span>
         <span class="cf-spacer"></span>
         <span id="cf-time" class="cf-dim">00:00</span>
       </div>
@@ -54,27 +55,30 @@ export class CockpitHUD {
     const panel = document.createElement('div');
     panel.id = 'cf-panel';
     panel.innerHTML = `
-      <div class="cf-panel-header">▣ CMD INTEL</div>
+      <div class="cf-panel-header">
+        <span data-i18n="panel.cmd_intel">${t('panel.cmd_intel')}</span>
+        <button id="cf-lang-toggle" class="cf-lang-btn" title="${t('lang.toggle_title')}">${t('lang.toggle')}</button>
+      </div>
 
       <div id="cf-cmd-danger" class="cf-cmd-danger hidden">
         <span class="cf-cmd-icon">★</span>
-        <span class="cf-cmd-text">القائد في الميدان</span>
-        <span class="cf-cmd-sub">COMMANDER ACTIVE</span>
+        <span class="cf-cmd-text" data-i18n="danger.active_ar">${t('danger.active_ar')}</span>
+        <span class="cf-cmd-sub"  data-i18n="danger.active_en">${t('danger.active_en')}</span>
       </div>
 
       <div class="cf-section">
-        <div class="cf-section-label">OBJECTIVES</div>
+        <div class="cf-section-label" data-i18n="section.objectives">${t('section.objectives')}</div>
         <div id="cf-objectives"></div>
       </div>
 
       <div class="cf-section">
-        <div class="cf-section-label">COMMAND WEB</div>
+        <div class="cf-section-label" data-i18n="section.command_web">${t('section.command_web')}</div>
         <svg id="cf-web" viewBox="0 0 238 130"
              xmlns="http://www.w3.org/2000/svg"></svg>
       </div>
 
       <div class="cf-section">
-        <div class="cf-section-label">THREAT GRID</div>
+        <div class="cf-section-label" data-i18n="section.threat_grid">${t('section.threat_grid')}</div>
         <div class="cf-threat-row">
           <div class="cf-grid" id="cf-sectors">
             ${[0,1,2,3,4,5,6,7,8].map(i =>
@@ -86,7 +90,7 @@ export class CockpitHUD {
           <div id="cf-advisory"></div>
         </div>
         <div id="cf-cmd-hp-row" class="cf-cmd-hp-row hidden">
-          <span class="cf-cmd-hp-label">★ CMD HP</span>
+          <span class="cf-cmd-hp-label" data-i18n="cmd.hp_label">${t('cmd.hp_label')}</span>
           <div class="cf-cmd-hp-track">
             <div id="cf-cmd-hp-fill" class="cf-cmd-hp-fill"></div>
           </div>
@@ -97,13 +101,13 @@ export class CockpitHUD {
       <div class="cf-section cf-section-footer">
         <span id="cf-kills"  class="cf-green">⬡ 0</span>
         <span id="cf-losses" class="cf-red">✗ 0</span>
-        <span id="cf-score"  class="cf-dim">0 pts</span>
+        <span id="cf-score"  class="cf-dim">0 <span data-i18n="stat.score_suffix">${t('stat.score_suffix')}</span></span>
       </div>
 
       <div class="cf-section cf-section-formation">
         <div class="cf-formation-row">
-          <span class="cf-section-label">FORMATION</span>
-          <span id="cf-formation" class="cf-green">وتش  WATCH</span>
+          <span class="cf-section-label" data-i18n="section.formation">${t('section.formation')}</span>
+          <span id="cf-formation" class="cf-green">${t('f.watch')}</span>
           <span class="cf-dim cf-formation-keys">[Z/C/V/B/N]</span>
         </div>
         <div class="cf-formation-body">
@@ -115,18 +119,35 @@ export class CockpitHUD {
 
       <div class="cf-section cf-section-resources">
         <div class="cf-resource-row">
-          <span class="cf-section-label">SONAR</span>
+          <span class="cf-section-label" data-i18n="section.sonar">${t('section.sonar')}</span>
           <div id="cf-sonar-pips" class="cf-pips"></div>
           <span class="cf-dim cf-res-keys">[Q/W/F]</span>
         </div>
         <div class="cf-resource-row">
-          <span class="cf-section-label">EMP</span>
+          <span class="cf-section-label" data-i18n="section.emp">${t('section.emp')}</span>
           <div id="cf-emp-pips" class="cf-pips"></div>
           <span class="cf-dim cf-res-keys">[X]</span>
         </div>
       </div>
     `;
     root.appendChild(panel);
+
+    // ── Language toggle button handler ────────────────────────────────────────
+    setTimeout(() => {
+      const langBtn = document.getElementById('cf-lang-toggle');
+      if (langBtn) {
+        langBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const next = getLang() === 'ar' ? 'en' : 'ar';
+          setLang(next);
+          langBtn.textContent = t('lang.toggle');
+          langBtn.title = t('lang.toggle_title');
+          // Also refresh mission text in top bar
+          const missionEl = document.getElementById('cf-mission');
+          if (missionEl) missionEl.textContent = t('mission.defend');
+        });
+      }
+    }, 0);
 
     // ── 3. Spatial Radar (separate canvas + perspective CSS wrapper) ────────
     const radarWrap = document.createElement('div');
@@ -142,7 +163,7 @@ export class CockpitHUD {
     radarLabel.innerHTML = `
       <span id="cf-rl-squad">IRONHAWK</span>
       <span class="cf-rl-sep">|</span>
-      <span>Spatial Radar</span>
+      <span data-i18n="radar.type">${t('radar.type')}</span>
       <span class="cf-rl-sep">|</span>
       <span id="cf-rl-grid">GRID: H-7</span>
     `;
