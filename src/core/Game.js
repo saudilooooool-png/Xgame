@@ -686,6 +686,7 @@ export class Game {
         // Start 3-2-1 countdown before spawning
         if (this._waveCountdown <= 0) this._waveCountdown = 3;
       }
+      this.commander.updateMobileSmoothing(dt);
       this._updatePhaseBar();
       return;  // skip combat, enemy AI, hazards during deployment
     }
@@ -705,6 +706,7 @@ export class Game {
         this._pendingEnemyOverride = undefined;
         this._showAlert('⚔ الهجوم!');
       }
+      this.commander.updateMobileSmoothing(dt);
       this._updatePhaseBar();
       return;
     }
@@ -864,6 +866,7 @@ export class Game {
     this.commander.updateRecommendation();
     this.cockpitHUD.update(dt);
     this.mobileControls.update(this.playerSwarm.currentFormation);
+    this.commander.updateMobileSmoothing(dt);
     this._updatePhaseBar();
   }
 

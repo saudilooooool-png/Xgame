@@ -1425,3 +1425,149 @@ button:focus { outline: none; }
   font-weight: 700;
   animation: cf-bar-crit 0.7s ease-in-out infinite;
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   MOBILE CONTROLS v2 — Radial Wheel + Compact Bar
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Compact bottom bar (single formation row) ─────────────────────── */
+.mc-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 320;
+  background: rgba(2,10,5,0.88);
+  border-top: 1px solid rgba(0,200,80,0.20);
+  backdrop-filter: blur(8px);
+  padding: 4px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mc-row { display: flex; gap: 4px; justify-content: center; }
+
+.mc-btn {
+  flex: 1;
+  max-width: 68px;
+  min-height: 48px;       /* ≥44pt touch target */
+  background: rgba(0,30,12,0.90);
+  border: 1px solid rgba(0,180,80,0.28);
+  border-radius: 7px;
+  color: #55cc88;
+  font-family: monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+.mc-btn.mc-active,
+.mc-btn:active      { background: rgba(0,180,80,0.22); border-color: rgba(0,220,100,0.60); }
+.mc-btn.mc-current  {
+  background: rgba(0,200,80,0.18);
+  border-color: rgba(0,255,120,0.65);
+  color: #00ff88;
+  box-shadow: 0 0 8px rgba(0,255,120,0.30);
+}
+.mc-btn.mc-special  { color: #44aaff; border-color: rgba(60,160,255,0.30); }
+.mc-btn.mc-action   { max-width: 52px; }
+
+.mc-label { font-size: 13px; font-weight: 700; line-height: 1; direction: rtl; }
+.mc-sub   { font-size: 8px;  opacity: 0.55; letter-spacing: 0.04em; }
+
+.mc-hint {
+  text-align: center;
+  font-size: 9px;
+  color: rgba(0,200,80,0.40);
+  font-family: monospace;
+  direction: rtl;
+  padding-bottom: 2px;
+}
+
+/* ── Radial command wheel ──────────────────────────────────────────── */
+.mc-wheel {
+  position: fixed;
+  width:  0;
+  height: 0;
+  z-index: 400;
+  pointer-events: none;
+}
+.mc-wheel.hidden { display: none; }
+.mc-wheel.mc-wheel-open { pointer-events: auto; }
+
+/* Background circle drawn via CSS */
+.mc-wheel::before {
+  content: '';
+  position: absolute;
+  width:  200px;
+  height: 200px;
+  left:   -100px;
+  top:    -100px;
+  border-radius: 50%;
+  background: rgba(2,14,8,0.88);
+  border: 2px solid rgba(0,200,80,0.30);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 30px rgba(0,150,60,0.25);
+}
+
+/* Center dismiss button */
+.mc-wheel-center {
+  position: absolute;
+  width:  44px;
+  height: 44px;
+  left:   -22px;
+  top:    -22px;
+  border-radius: 50%;
+  background: rgba(0,60,20,0.95);
+  border: 1px solid rgba(0,200,80,0.40);
+  color: rgba(0,200,80,0.60);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: monospace;
+  z-index: 2;
+}
+
+/* Individual slice buttons */
+.mc-slice {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width:  58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(4,20,10,0.92);
+  border: 1.5px solid rgba(var(--slice-color, 0,200,80), 0.35);
+  border-color: color-mix(in srgb, var(--slice-color, #00e87a) 40%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  cursor: pointer;
+  z-index: 3;
+  transition: transform 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.mc-slice-active {
+  transform: translate(-50%, -50%) scale(1.22);
+  background: rgba(0,40,18,0.97);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--slice-color, #00e87a) 60%, transparent);
+  border-width: 2px;
+}
+
+.mc-slice-icon { font-size: 16px; line-height: 1; }
+.mc-slice-ar   { font-size: 9px;  font-weight: 700; color: var(--slice-color, #00e87a); direction: rtl; }
+.mc-slice-en   { font-size: 7px;  opacity: 0.55; color: #88bbaa; }
+
+/* Open animation */
+@keyframes wheelPop {
+  0%   { opacity: 0; transform: scale(0.6); }
+  70%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.mc-wheel.mc-wheel-open::before { animation: wheelPop 0.20s cubic-bezier(0.22,1,0.36,1); }

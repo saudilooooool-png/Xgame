@@ -183,7 +183,17 @@ export class Commander {
   _bindEvents() {
     const canvas = this.canvas.el;
 
-    // ── Mouse-follow: steer swarm continuously without clicking ──────────────
+    // Mobile smooth-target state
+    this._mobileRawX   = null;
+    this._mobileRawY   = null;
+    this._mobileSmoothX = canvas.width  / 2;
+    this._mobileSmoothY = canvas.height / 2;
+    // Joystick origin (where finger first landed)
+    this._joyOriginX = 0;
+    this._joyOriginY = 0;
+    this._joyActive  = false;
+
+    // ── Mouse-follow (desktop) ───────────────────────────────────────────────
     canvas.addEventListener('mousemove', (e) => {
       if (this.game.aiMode) return;
       if (this.game._empMode || this.game._towerMode) return;
@@ -191,34 +201,92 @@ export class Commander {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      this._targetZoneDisplay = { x, y, alpha: 0.45 };  // subtle indicator
+      this._targetZoneDisplay = { x, y, alpha: 0.45 };
       this.swarm.setTargetZone(x, y);
     });
 
-    // Mouse click still used for EMP/tower placement (handled by Game._onCanvasClick)
-    // No additional click handler needed for movement.
+    // ── Virtual joystick (touch) ─────────────────────────────────────────────
+    const DEAD_ZONE  = 15;    // px — no movement inside this radius
+    const MAX_RANGE  = 110;   // px — full-speed at this offset
+    const CANVAS_W   = canvas.width;
+    const CANVAS_H   = canvas.height;
 
-    // Touch support — treat touchstart as initial position
     canvas.addEventListener('touchstart', (e) => {
-      if (this.game.aiMode) return;
+      if (this.game.aiMode || this.game._awaitingUpgrade) return;
+      // Only handle the FIRST touch here; multi-finger is handled by MobileControls
+      if (e.touches.length !== 1) { this._joyActive = false; return; }
       e.preventDefault();
-      const touch = e.changedTouches[0];
-      const rect  = canvas.getBoundingClientRect();
-      this._onTargetClick(touch.clientX - rect.left, touch.clientY - rect.top);
+      const t   = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      this._joyOriginX = t.clientX - rect.left;
+      this._joyOriginY = t.clientY - rect.top;
+      this._joyActive  = true;
+      // Seed smooth position at origin so there's no jump
+      this._mobileRawX    = this._joyOriginX;
+      this._mobileRawY    = this._joyOriginY;
+      this._mobileSmoothX = this._joyOriginX;
+      this._mobileSmoothY = this._joyOriginY;
+      this.swarm.setTargetZone(this._joyOriginX, this._joyOriginY);
     }, { passive: false });
 
-    // Touch drag — continuously steer while finger moves
     canvas.addEventListener('touchmove', (e) => {
       if (this.game.aiMode) return;
       if (this.game._empMode || this.game._towerMode) return;
+      if (!this._joyActive || e.touches.length !== 1) return;
       e.preventDefault();
-      const touch = e.changedTouches[0];
-      const rect  = canvas.getBoundingClientRect();
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      this._targetZoneDisplay = { x, y, alpha: 0.6 };
-      this.swarm.setTargetZone(x, y);
+      const t    = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const tx   = t.clientX - rect.left;
+      const ty   = t.clientY - rect.top;
+
+      // Delta from joystick origin
+      const dx = tx - this._joyOriginX;
+      const dy = ty - this._joyOriginY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < DEAD_ZONE) return;   // inside dead-zone — no movement
+
+      // Exponential acceleration: slow near dead-zone edge, faster beyond
+      const active = dist - DEAD_ZONE;
+      const ratio  = Math.min(active / (MAX_RANGE - DEAD_ZONE), 1.0);
+      const speed  = ratio * ratio;    // quadratic curve
+
+      // Map to canvas world coordinates: move swarm in the direction of drag
+      const cx = CANVAS_W / 2, cy = CANVAS_H / 2;
+      const angle = Math.atan2(dy, dx);
+      const reach = speed * Math.max(CANVAS_W, CANVAS_H) * 0.42;
+      const wx = cx + Math.cos(angle) * reach;
+      const wy = cy + Math.sin(angle) * reach;
+
+      this._mobileRawX = wx;
+      this._mobileRawY = wy;
+      // Update joystick puck position for visual (clamped to MAX_RANGE)
+      const puckDist = Math.min(dist, MAX_RANGE);
+      this._joyPuckX = this._joyOriginX + Math.cos(angle) * puckDist;
+      this._joyPuckY = this._joyOriginY + Math.sin(angle) * puckDist;
+      this._targetZoneDisplay = { x: wx, y: wy, alpha: 0.55 };
     }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (e.touches.length === 0) {
+        this._joyActive  = false;
+        this._mobileRawX = null;
+        this._joyPuckX   = undefined;
+        this._joyPuckY   = undefined;
+      }
+    }, { passive: true });
+  }
+
+  /**
+   * Called every frame from Game._update() to lerp the mobile swarm target.
+   * Frame-rate independent exponential smoothing.
+   */
+  updateMobileSmoothing(dt) {
+    if (!this._joyActive || this._mobileRawX === null) return;
+    const k = 1 - Math.pow(0.04, dt);   // ~12 frames to reach target at 60fps
+    this._mobileSmoothX += (this._mobileRawX - this._mobileSmoothX) * k;
+    this._mobileSmoothY += (this._mobileRawY - this._mobileSmoothY) * k;
+    this.swarm.setTargetZone(this._mobileSmoothX, this._mobileSmoothY);
   }
 
   _onAIToggle() {
@@ -369,6 +437,54 @@ export class Commander {
   }
 
   drawTargetZone(ctx) {
+    // ── Virtual joystick ring (mobile only) ───────────────────────────────────
+    if (this._joyActive && this._joyOriginX !== undefined) {
+      const ox = this._joyOriginX, oy = this._joyOriginY;
+      const px = this._joyPuckX ?? ox, py = this._joyPuckY ?? oy;
+
+      ctx.save();
+      // Outer ring
+      ctx.globalAlpha = 0.30;
+      ctx.strokeStyle = '#00d4ff';
+      ctx.lineWidth   = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.arc(ox, oy, 110, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Dead-zone ring
+      ctx.globalAlpha = 0.18;
+      ctx.strokeStyle = '#00d4ff';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.arc(ox, oy, 15, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Puck
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle   = '#00d4ff';
+      ctx.shadowColor = '#00d4ff';
+      ctx.shadowBlur  = 12;
+      ctx.beginPath();
+      ctx.arc(px, py, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Line from origin to puck
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = '#00d4ff';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+
+      ctx.restore();
+      return;   // don't also draw target zone circle on mobile
+    }
+
+    // ── Desktop target zone reticle ───────────────────────────────────────────
     if (!this._targetZoneDisplay) return;
     const { x, y, alpha } = this._targetZoneDisplay;
 
