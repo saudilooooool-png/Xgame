@@ -562,20 +562,49 @@ export class CockpitHUD {
   _updateObjectives(g) {
     const el = document.getElementById('cf-objectives');
     if (!el) return;
+
+    // Arabic full names + output rate labels per resource type
+    const OBJ_META = {
+      power: { ar: 'محطة الطاقة',  unit: 'كيلوواط', rateBase: 24 },
+      water: { ar: 'خزان المياه',  unit: 'م³/د',    rateBase: 18 },
+      food:  { ar: 'مزرعة الغذاء', unit: 'وحدة/د',  rateBase: 14 },
+    };
+
     el.innerHTML = g.objectives.map(obj => {
       const pct   = obj.health <= 0 ? 0 : obj.health / obj.maxHealth;
       const color = pct > 0.6 ? '#00e87a' : pct > 0.3 ? '#ffaa00' : '#ff3333';
-      const label = (obj._label ?? obj._type ?? '??').toUpperCase();
-      const txt   = obj.health <= 0 ? 'DESTROYED' : pct <= 0.3 ? 'CRITICAL' : `${Math.floor(pct * 100)}%`;
+      const meta  = OBJ_META[obj.resourceType] ?? OBJ_META.power;
+      const arName = meta.ar;
+      const icon  = obj._icon ?? '⚡';
       const crit       = pct > 0 && pct <= 0.30;
       const threatened = (obj._threatCount ?? 0) > 0;
-      return `<div class="cf-obj-row${threatened ? ' cf-threatened' : ''}">
-        <span class="cf-obj-label" style="color:${color}">${label}</span>
-        <div class="cf-bar-track">
-          <div class="cf-bar-fill${crit ? ' cf-crit' : ''}" style="width:${Math.floor(pct*100)}%;background:${color}"></div>
-        </div>
-        <span class="cf-obj-pct" style="color:${color}">${txt}</span>
-      </div>`;
+      const destroyed  = obj.health <= 0;
+
+      // Resource output rate — proportional to HP%, rounded
+      const rate    = destroyed ? 0 : Math.round(meta.rateBase * pct);
+      const rateMax = meta.rateBase;
+      const rateColor = pct > 0.6 ? '#55cc88' : pct > 0.3 ? '#ddaa44' : '#cc4444';
+
+      const statusTxt = destroyed ? 'مُدمَّر ✗'
+                      : crit      ? '⚠ حرج'
+                      : `${Math.floor(pct * 100)}%`;
+
+      return `
+        <div class="cf-obj-card${threatened ? ' cf-threatened' : ''}${crit ? ' cf-crit-card' : ''}${destroyed ? ' cf-destroyed-card' : ''}">
+          <div class="cf-obj-header">
+            <span class="cf-obj-icon">${icon}</span>
+            <span class="cf-obj-arname" style="color:${color}">${arName}</span>
+            <span class="cf-obj-status" style="color:${color}">${statusTxt}</span>
+          </div>
+          <div class="cf-bar-track">
+            <div class="cf-bar-fill${crit ? ' cf-crit' : ''}"
+                 style="width:${Math.floor(pct*100)}%;background:${color}"></div>
+          </div>
+          <div class="cf-obj-rate">
+            <span style="color:${rateColor}">${rate} / ${rateMax} ${meta.unit}</span>
+            ${threatened ? `<span class="cf-obj-threat">▲ ×${obj._threatCount}</span>` : ''}
+          </div>
+        </div>`;
     }).join('');
   }
 

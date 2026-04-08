@@ -146,6 +146,8 @@ export class ThreeScene {
     const gridMain = new THREE.GridHelper(gridSize, 70, 0x3a9960, 0x1d6638);
     gridMain.position.set(W / 2, 0.5, H / 2);
     this._scene.add(gridMain);
+    // Store ref for power-dim effect
+    this._gridMainMat = gridMain.material[0] ?? gridMain.material;
 
     // ── Fine grid (minor cells — subtle hint) ────────────────────────────
     const gridFine = new THREE.GridHelper(gridSize, 280, 0x0d3318, 0x081d0c);
@@ -372,74 +374,236 @@ export class ThreeScene {
     return g;
   }
 
+  // ── Objective tower models (one per resource type) ───────────────────────
+
   _makeObjectiveTower(obj) {
-    const g = new THREE.Group();
-    const hex = obj._color ? parseInt(obj._color.replace('#', ''), 16) : 0x00e87a;
+    const type = obj.resourceType ?? 'power';
+    if (type === 'water') return this._makeWaterTower(obj);
+    if (type === 'food')  return this._makeFoodTower(obj);
+    return this._makePowerTower(obj);
+  }
 
-    // Octagonal base platform
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(52, 58, 9, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1c3824, metalness: 0.65, roughness: 0.5 })
-    );
-    base.position.y = 4.5;
-    base.receiveShadow = true;
-    g.add(base);
-
-    // Tower column — tall enough to be clearly visible from the new camera angle
-    const tH = 160;
-    const tower = new THREE.Mesh(
-      new THREE.CylinderGeometry(24, 30, tH, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1a3020, metalness: 0.78, roughness: 0.38 })
-    );
-    tower.position.y = tH / 2 + 9;
-    tower.castShadow  = true;
-    tower.receiveShadow = true;
-    g.add(tower);
-
-    // Health ring (changes colour with HP%)
+  /** Shared top-beacon + health ring added to every tower group */
+  _attachBeacon(g, hex, topY) {
     const healthRing = new THREE.Mesh(
       new THREE.TorusGeometry(44, 4.5, 8, 44),
       new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 3.0 })
     );
     healthRing.rotation.x = Math.PI / 2;
-    healthRing.position.y = tH + 12;
+    healthRing.position.y = topY;
     g.add(healthRing);
 
-    // Top beacon sphere
     const beacon = new THREE.Mesh(
       new THREE.SphereGeometry(9, 12, 8),
       new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 4.5 })
     );
-    beacon.position.y = tH + 28;
+    beacon.position.y = topY + 16;
     g.add(beacon);
 
-    // Beacon light
-    const beaconLight = new THREE.PointLight(hex, 3.5, 260);
-    beaconLight.position.y = tH + 28;
+    const beaconLight = new THREE.PointLight(hex, 3.5, 280);
+    beaconLight.position.y = topY + 16;
     g.add(beaconLight);
 
-    // Two counter-rotating accent rings (pulse = living objective)
     const pulseRingA = new THREE.Mesh(
       new THREE.TorusGeometry(34, 1.2, 6, 36),
       new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 0.9,
         transparent: true, opacity: 0.6 })
     );
     pulseRingA.rotation.x = Math.PI / 2;
-    pulseRingA.position.y = tH + 12;
+    pulseRingA.position.y = topY;
     g.add(pulseRingA);
 
     const pulseRingB = pulseRingA.clone();
     pulseRingB.rotation.z = Math.PI * 0.33;
     g.add(pulseRingB);
 
-    // Tag internal refs for updates
     g._healthRing  = healthRing;
     g._beacon      = beacon;
     g._beaconLight = beaconLight;
     g._pulseA      = pulseRingA;
     g._pulseB      = pulseRingB;
-    g._tH          = tH;
+  }
 
+  /** ⚡ Power — tall transmission tower with cross-arms */
+  _makePowerTower(obj) {
+    const g   = new THREE.Group();
+    const hex = 0xffcc00;   // gold
+
+    // Base pad
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(52, 58, 9, 8),
+      new THREE.MeshStandardMaterial({ color: 0x2a2a10, metalness: 0.7, roughness: 0.5 })
+    );
+    base.position.y = 4.5;
+    g.add(base);
+
+    // Central mast — tall and thin
+    const tH = 180;
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(7, 12, tH, 8),
+      new THREE.MeshStandardMaterial({ color: 0x4a4a22, metalness: 0.88, roughness: 0.25,
+        emissive: 0x222200, emissiveIntensity: 0.4 })
+    );
+    mast.position.y = tH / 2 + 9;
+    mast.castShadow = true;
+    g.add(mast);
+
+    // Cross-arms at two heights
+    for (const [yOff, width] of [[tH * 0.45, 90], [tH * 0.72, 60], [tH * 0.92, 36]]) {
+      const arm = new THREE.Mesh(
+        new THREE.BoxGeometry(width, 6, 8),
+        new THREE.MeshStandardMaterial({ color: 0x3a3a18, metalness: 0.8, roughness: 0.3 })
+      );
+      arm.position.y = yOff + 9;
+      g.add(arm);
+
+      // Insulator glows at each end
+      for (const sign of [-1, 1]) {
+        const ins = new THREE.Mesh(
+          new THREE.SphereGeometry(4, 6, 4),
+          new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 2.0 })
+        );
+        ins.position.set(sign * (width / 2 - 4), yOff + 9, 0);
+        g.add(ins);
+      }
+    }
+
+    // Electric spark light (flickers in animation)
+    const spark = new THREE.PointLight(hex, 2.5, 180);
+    spark.position.y = tH * 0.7 + 9;
+    g.add(spark);
+    g._sparkLight = spark;
+    g._tH = tH;
+
+    this._attachBeacon(g, hex, tH + 9);
+    return g;
+  }
+
+  /** 💧 Water — squat cylindrical tank on support legs */
+  _makeWaterTower(obj) {
+    const g   = new THREE.Group();
+    const hex = 0x00aaff;   // cyan-blue
+
+    // Base pad
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(52, 58, 9, 8),
+      new THREE.MeshStandardMaterial({ color: 0x102232, metalness: 0.6, roughness: 0.55 })
+    );
+    base.position.y = 4.5;
+    g.add(base);
+
+    // Four support legs
+    for (const [sx, sz] of [[-28,0],[28,0],[0,-28],[0,28]]) {
+      const leg = new THREE.Mesh(
+        new THREE.CylinderGeometry(5, 7, 80, 6),
+        new THREE.MeshStandardMaterial({ color: 0x1a3040, metalness: 0.75, roughness: 0.4 })
+      );
+      leg.position.set(sx, 49, sz);
+      leg.castShadow = true;
+      g.add(leg);
+    }
+
+    // Cross-brace ring
+    const braceRing = new THREE.Mesh(
+      new THREE.TorusGeometry(30, 4, 6, 20),
+      new THREE.MeshStandardMaterial({ color: 0x1a3040, metalness: 0.7, roughness: 0.45 })
+    );
+    braceRing.rotation.x = Math.PI / 2;
+    braceRing.position.y = 40;
+    g.add(braceRing);
+
+    // Main tank (large sphere-capped cylinder)
+    const tH = 100;
+    const tankBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(48, 48, 55, 16),
+      new THREE.MeshStandardMaterial({ color: 0x0a2840, metalness: 0.55, roughness: 0.35,
+        emissive: 0x001830, emissiveIntensity: 0.5 })
+    );
+    tankBody.position.y = tH + 9;
+    tankBody.castShadow = true;
+    g.add(tankBody);
+
+    // Dome cap on tank
+    const dome = new THREE.Mesh(
+      new THREE.SphereGeometry(48, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0x0d3050, metalness: 0.6, roughness: 0.3,
+        emissive: 0x002244, emissiveIntensity: 0.4 })
+    );
+    dome.position.y = tH + 36;
+    g.add(dome);
+
+    // Water ripple ring at base
+    const ripple = new THREE.Mesh(
+      new THREE.TorusGeometry(55, 2, 6, 32),
+      new THREE.MeshStandardMaterial({ color: hex, emissive: hex, emissiveIntensity: 1.5,
+        transparent: true, opacity: 0.5 })
+    );
+    ripple.rotation.x = Math.PI / 2;
+    ripple.position.y = 2;
+    g.add(ripple);
+    g._rippleRing = ripple;
+    g._tH = tH + 50;
+
+    this._attachBeacon(g, hex, tH + 60);
+    return g;
+  }
+
+  /** 🌾 Food — low dome greenhouse with farm panels */
+  _makeFoodTower(obj) {
+    const g   = new THREE.Group();
+    const hex = 0x66ff33;   // bright green
+
+    // Wide base platform
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(70, 76, 10, 8),
+      new THREE.MeshStandardMaterial({ color: 0x1a3010, metalness: 0.4, roughness: 0.7 })
+    );
+    base.position.y = 5;
+    base.receiveShadow = true;
+    g.add(base);
+
+    // Farm panels (6 rectangular plots around center)
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x1a4a08, roughness: 0.85, metalness: 0.08,
+      emissive: 0x0a2204, emissiveIntensity: 0.3
+    });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(28, 3, 18), panelMat);
+      panel.position.set(Math.cos(a) * 44, 11, Math.sin(a) * 44);
+      panel.rotation.y = a;
+      g.add(panel);
+    }
+
+    // Central control dome
+    const tH = 70;
+    const domeBody = new THREE.Mesh(
+      new THREE.SphereGeometry(36, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x0d2808, metalness: 0.45, roughness: 0.5,
+        emissive: 0x062004, emissiveIntensity: 0.3 })
+    );
+    domeBody.position.y = tH / 2 + 10;
+    domeBody.castShadow = true;
+    g.add(domeBody);
+
+    // Dome frame rings
+    for (const yOff of [0, 18, 32]) {
+      const frameRing = new THREE.Mesh(
+        new THREE.TorusGeometry(35 - yOff * 0.5, 2, 6, 24),
+        new THREE.MeshStandardMaterial({ color: 0x1a4010, metalness: 0.6, roughness: 0.4 })
+      );
+      frameRing.rotation.x = Math.PI / 2;
+      frameRing.position.y = tH / 2 + 10 + yOff;
+      g.add(frameRing);
+    }
+
+    // Growth light (warm green glow from dome)
+    const growLight = new THREE.PointLight(hex, 1.8, 200);
+    growLight.position.y = tH / 2 + 40;
+    g.add(growLight);
+    g._tH = tH + 10;
+
+    this._attachBeacon(g, hex, tH + 20);
     return g;
   }
 
@@ -507,12 +671,41 @@ export class ThreeScene {
 
   _animateObjectives(g) {
     const t = Date.now() * 0.001;
+
+    // ── Grid dim on low Power ─────────────────────────────────────────────────
+    if (g.cityResources && this._gridMainMat) {
+      const power = g.cityResources.power ?? 100;
+      const bright = power > 50 ? 1.0 : 0.25 + (power / 50) * 0.75;
+      const r = Math.round(0x3a * bright), gr = Math.round(0x99 * bright), b = Math.round(0x60 * bright);
+      this._gridMainMat.color.setRGB(r / 255, gr / 255, b / 255);
+    }
+
+    // ── Drone glow tint on low Food ───────────────────────────────────────────
+    if (g.cityResources) {
+      const food = g.cityResources.food ?? 100;
+      const hunger = food < 40 ? (1 - food / 40) : 0;  // 0=full, 1=starving
+      if (g.playerSwarm?.drones) {
+        for (const drone of g.playerSwarm.drones) {
+          const mesh = this._meshes.get(drone);
+          if (!mesh) continue;
+          // Tint the ring mesh red when hungry
+          mesh.traverse(child => {
+            if (child.isMesh && child.material?.emissive) {
+              const base = new THREE.Color(0x00e87a);
+              const red  = new THREE.Color(0xff3300);
+              child.material.emissive.copy(base).lerp(red, hunger * 0.6);
+            }
+          });
+        }
+      }
+    }
+
     g.objectives?.forEach(obj => {
       const group = this._meshes.get(obj);
       if (!group) return;
 
-      // Update health colour
-      const pct = obj.health / obj.maxHealth;
+      // Health colour: green → amber → red
+      const pct = obj.health <= 0 ? 0 : obj.health / obj.maxHealth;
       const hex  = pct > 0.6 ? 0x00e87a : pct > 0.3 ? 0xffaa00 : 0xff3333;
       const col  = new THREE.Color(hex);
 
@@ -523,18 +716,30 @@ export class ThreeScene {
       group._beaconLight.color.set(col);
 
       // Pulse accent rings
-      const pulse = 0.5 + 0.5 * Math.sin(t * (pct < 0.3 ? 4.0 : 1.8));
+      const urgency = pct < 0.3 ? 4.0 : 1.8;
+      const pulse = 0.5 + 0.5 * Math.sin(t * urgency);
       if (group._pulseA) {
         group._pulseA.material.opacity = pulse * 0.7;
         group._pulseA.rotation.y += 0.008;
         group._pulseB.rotation.y -= 0.010;
       }
 
-      // Beacon throb
+      // Beacon throb (faster when critical)
       if (group._beacon) {
         const sc = 0.85 + 0.3 * Math.sin(t * (pct < 0.3 ? 5 : 2));
         group._beacon.scale.setScalar(sc);
         group._beaconLight.intensity = 2.5 + 2.0 * Math.sin(t * (pct < 0.3 ? 5 : 2));
+      }
+
+      // Power tower: flicker spark light
+      if (group._sparkLight) {
+        group._sparkLight.intensity = 1.5 + 1.5 * Math.sin(t * 12.3 + obj.x) * Math.sin(t * 7.7);
+      }
+
+      // Water tower: ripple ring rotation
+      if (group._rippleRing) {
+        group._rippleRing.rotation.z += 0.012;
+        group._rippleRing.material.opacity = 0.3 + 0.2 * Math.sin(t * 2.5);
       }
     });
   }

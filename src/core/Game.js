@@ -857,6 +857,7 @@ export class Game {
     this._updateSideMission(dt);
     this._checkCombat(dt);
     this._checkObjectiveHits();
+    this._checkDistressCalls();
     this._checkWaveComplete();
     this._checkGameOver();
     this._updateFX(dt);
@@ -1123,6 +1124,24 @@ export class Game {
   _showAlert(text) {
     this._alertText  = text;
     this._alertTimer = 3.0;
+  }
+
+  /** Fires a one-time Arabic distress call when an objective first drops below 30% */
+  _checkDistressCalls() {
+    if (!this._distressAlerted) this._distressAlerted = new Set();
+    const ARABIC_NAMES = { power: 'محطة الطاقة', water: 'خزان المياه', food: 'مزرعة الغذاء' };
+    for (const obj of this.objectives) {
+      if (obj.health <= 0) continue;
+      const pct = obj.health / obj.maxHealth;
+      const key = obj.resourceType;
+      if (pct < 0.30 && !this._distressAlerted.has(key)) {
+        this._distressAlerted.add(key);
+        this._showAlert(`🚨 ${ARABIC_NAMES[key] ?? key} تحت هجوم شديد! أرسل دعماً!`);
+        this.shake.trigger(14, 0.45);
+      }
+      // Clear flag if health recovers above 40% so it can fire again
+      if (pct > 0.40) this._distressAlerted.delete(key);
+    }
   }
 
   // ── Quick action menu (R key) ─────────────────────────────────────────────
@@ -1636,6 +1655,9 @@ export class Game {
       ctx.restore();
     }
 
+    // ── Objective distress screen-edge indicators ─────────────────────────────
+    this._drawObjectiveEdgeIndicators(ctx, W, H);
+
     // ── K/L ratio bar ─────────────────────────────────────────────────────────
     {
       const total = this.waveKills + this.waveLosses;
@@ -2108,6 +2130,78 @@ export class Game {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
+  }
+
+  /**
+   * Draw pulsing arrows on the screen edge pointing toward any objective
+   * with HP < 35% that is off-screen or in a corner.
+   */
+  _drawObjectiveEdgeIndicators(ctx, W, H) {
+    if (!this.objectives) return;
+    const ARABIC_NAMES = { power: 'الطاقة', water: 'المياه', food: 'الغذاء' };
+    const OBJ_COLORS   = { power: '#ffcc00', water: '#00aaff', food: '#66ff33' };
+    const MARGIN = 40;
+    const t = Date.now() * 0.001;
+
+    for (const obj of this.objectives) {
+      if (obj.health <= 0) continue;
+      const pct = obj.health / obj.maxHealth;
+      if (pct > 0.35) continue;   // only show when critical
+
+      const pulse = 0.55 + 0.45 * Math.sin(t * (pct < 0.15 ? 6 : 3.5));
+      const color = OBJ_COLORS[obj.resourceType] ?? '#ff4444';
+      const label = ARABIC_NAMES[obj.resourceType] ?? '?';
+
+      // Direction from screen center to objective
+      const dx = obj.x - W / 2;
+      const dy = obj.y - H / 2;
+      const angle = Math.atan2(dy, dx);
+
+      // Clamp indicator to screen edge with margin
+      const absX = Math.abs(dx / (W / 2 - MARGIN));
+      const absY = Math.abs(dy / (H / 2 - MARGIN));
+      let ex, ey;
+      if (absX > absY) {
+        ex = dx > 0 ? W - MARGIN : MARGIN;
+        ey = H / 2 + Math.tan(angle) * (ex - W / 2);
+        ey = Math.max(MARGIN, Math.min(H - MARGIN, ey));
+      } else {
+        ey = dy > 0 ? H - MARGIN : MARGIN;
+        ex = W / 2 + (Math.cos(angle) / Math.abs(Math.sin(angle))) * (ey - H / 2);
+        ex = Math.max(MARGIN, Math.min(W - MARGIN, ex));
+      }
+
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.rotate(angle + Math.PI / 2);   // arrow points toward objective
+      ctx.globalAlpha = pulse * 0.88;
+
+      // Arrow triangle
+      ctx.fillStyle   = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = 14 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(0, -14);
+      ctx.lineTo(9, 10);
+      ctx.lineTo(-9, 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+
+      // Label near the arrow
+      ctx.save();
+      ctx.globalAlpha = pulse * 0.80;
+      ctx.font = 'bold 10px monospace';
+      ctx.fillStyle   = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = 8;
+      ctx.textAlign   = 'center';
+      const lx = ex + Math.cos(angle) * 26;
+      const ly = ey + Math.sin(angle) * 26;
+      ctx.fillText(`${Math.floor(pct * 100)}% ${label}`, lx, ly);
+      ctx.restore();
+    }
   }
 
   _drawDeploymentOverlay(ctx, W, H) {
