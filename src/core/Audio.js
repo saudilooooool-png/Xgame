@@ -66,4 +66,38 @@ export class Audio {
     this._play(440, 'sawtooth', 0.5, 0.2, 110);
     setTimeout(() => this._play(110, 'sawtooth', 0.8, 0.25, 55), 300);
   }
+
+  /** 3-2-1 countdown beep — pitch rises as we approach zero */
+  countdownBeep(n) {
+    const freq = n === 3 ? 330 : n === 2 ? 440 : 660;
+    this._play(freq, 'sine', 0.18, 0.22);
+  }
+
+  /** Deep rumble before a boss wave */
+  bossWarning() {
+    this._play(55, 'sawtooth', 0.9, 0.30, 40);
+    setTimeout(() => this._play(80, 'sawtooth', 0.7, 0.28, 55), 350);
+    setTimeout(() => this._play(110, 'sine',    0.5, 0.18, 80), 700);
+  }
+
+  /** Gentle arpeggio for rest waves */
+  restWave() {
+    this._play(660, 'sine', 0.35, 0.07, 880);
+    setTimeout(() => this._play(880, 'sine', 0.30, 0.06, 1100), 180);
+    setTimeout(() => this._play(1100, 'sine', 0.25, 0.05, 1320), 360);
+  }
+
+  /** Rapid ascending burst for blitz/swarm waves */
+  blitzAlert() {
+    this._play(220, 'sawtooth', 0.08, 0.18, 330);
+    setTimeout(() => this._play(330, 'sawtooth', 0.08, 0.20, 440), 80);
+    setTimeout(() => this._play(440, 'sawtooth', 0.08, 0.22, 660), 160);
+    setTimeout(() => this._play(660, 'sawtooth', 0.08, 0.25, 880), 240);
+  }
+
+  /** Stealthy low pulse for stealth waves */
+  stealthAlert() {
+    this._play(110, 'sine', 0.4, 0.12, 88);
+    setTimeout(() => this._play(88, 'sine', 0.3, 0.10, 66), 500);
+  }
 }

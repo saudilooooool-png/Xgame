@@ -80,26 +80,37 @@ export class WaveAnnouncer {
     ctx.shadowBlur  = 18;
     ctx.fillText(s.arTitle, cx, titleY);
 
+    // ── Archetype badge (below chapter title) ────────────────────────────
+    if (s.archetypeAr && !this._isBoss) {
+      ctx.font      = 'bold 14px monospace';
+      ctx.fillStyle = 'rgba(0,220,150,0.90)';
+      ctx.shadowColor = '#00e87a';
+      ctx.shadowBlur  = 12;
+      ctx.fillText(s.archetypeAr, cx, titleY + 24);
+    }
+
     // ── English subtitle (small) ─────────────────────────────────────────
     if (s.enTitle && this._wave > 1) {
+      const enY = s.archetypeAr && !this._isBoss ? titleY + 42 : titleY + 22;
       ctx.font      = '13px monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.shadowBlur = 0;
-      ctx.fillText(s.enTitle, cx, titleY + 22);
+      ctx.fillText(s.enTitle, cx, enY);
     }
 
     // ── Narrative description ────────────────────────────────────────────
+    const archetypeOffset = (s.archetypeAr && !this._isBoss) ? 18 : 0;
     if (s.sub) {
       ctx.font      = '13px monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.60)';
       ctx.shadowBlur = 0;
       // Word-wrap manually for long Arabic text
-      this._drawWrapped(ctx, s.sub, cx, titleY + 50, W * 0.62, 18);
+      this._drawWrapped(ctx, s.sub, cx, titleY + 50 + archetypeOffset, W * 0.62, 18);
     }
 
     // ── Urgent resource warnings ─────────────────────────────────────────
     if (s.urgentLines?.length) {
-      let uy = titleY + 50 + (s.sub ? 40 : 0);
+      let uy = titleY + 50 + archetypeOffset + (s.sub ? 40 : 0);
       ctx.font      = 'bold 12px monospace';
       ctx.shadowColor = '#ff4444';
       ctx.shadowBlur  = 10;

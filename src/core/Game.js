@@ -33,6 +33,7 @@ import { CockpitShell }   from '../ui/CockpitShell.js';
 import { ThreeScene }     from '../rendering/ThreeScene.js';
 import { MobileControls } from '../ui/MobileControls.js';
 import { t, onLangChange } from '../data/Locale.js';
+import { getWaveArchetype, WAVE_ARCHETYPES } from '../entities/EnemyRoles.js';
 
 export class Game {
   constructor() {
@@ -583,10 +584,12 @@ export class Game {
       this.objectives
     );
 
-    const isBossWave = this.wave % 5 === 0;
-    const story = getWaveStory(this.wave, isBossWave, this.cityResources, this._streak);
+    const isBossWave   = this.wave % 5 === 0;
+    const archetypeKey = getWaveArchetype(this.wave);
+    const archetype    = WAVE_ARCHETYPES[archetypeKey];
+    const archetypeAr  = archetype?.ar ?? '';
+    const story = getWaveStory(this.wave, isBossWave, this.cityResources, this._streak, archetypeAr);
     this.waveAnnouncer.announce(this.wave, isBossWave, story, this._streak);
-    this.audio.waveStart();
 
     // Apply sabotage / base-destruction wave-count reduction
     const activeMult = Math.min(this._nextWaveEnemyMult,
@@ -614,9 +617,35 @@ export class Game {
       this.playerSwarm.reinforce(Math.min(5, 20 - this.playerSwarm.drones.length), 'standard');
     }
 
-    // ── Deployment phase: give player 12s to position before enemies spawn ──
+    // ── Archetype-driven audio ───────────────────────────────────────────────
+
+    if (isBossWave) {
+      this.audio.bossWarning();
+    } else if (archetypeKey === 'rest') {
+      this.audio.restWave();
+    } else if (archetypeKey === 'blitz' || archetypeKey === 'swarm') {
+      this.audio.blitzAlert();
+    } else if (archetypeKey === 'stealth') {
+      this.audio.stealthAlert();
+    } else {
+      this.audio.waveStart();
+    }
+
+    // Show archetype name as brief alert (except standard)
+    if (archetypeKey !== 'standard' && archetype?.ar) {
+      setTimeout(() => this._showAlert(archetype.ar), 1800);
+    }
+
+    // ── Deployment phase: duration scales with wave + archetype ─────────────
     if (this.wave > 1) {
-      this._deploymentPhase = 12;
+      const deployTime = isBossWave    ? 16
+                       : archetypeKey === 'rest' ? 8
+                       : this.wave >= 11 ? 14
+                       : this.wave >= 6  ? 12
+                       : 10;
+      this._deploymentPhase    = deployTime;
+      this._bossWarningShown   = false;
+      this._bossWarningActive  = isBossWave;
       this._showAlert(t('alert.deploy'));
     } else {
       // Wave 1: no deployment pause, just start
@@ -684,6 +713,18 @@ export class Game {
       this.waveAnnouncer.update(dt);
       const cx = this.canvas.width / 2, cy = this.canvas.height / 2;
       this.radarSweep.update(dt, cx, cy, this.playerSwarm.drones);
+
+      // Boss warning: fire 4 seconds before deployment ends
+      if (this._bossWarningActive && !this._bossWarningShown &&
+          this._deploymentPhase <= 4.0) {
+        this._bossWarningShown = true;
+        this._showAlert('⚠ القائد الأعدو يقترب — استعد للمعركة!');
+        this.shake.trigger(0.35);
+      }
+
+      // Slide objectives during deployment — player can see where to defend
+      this._lerpObjectivePositions(dt);
+
       if (this._deploymentPhase <= 0) {
         this._deploymentPhase = 0;
         // Start 3-2-1 countdown before spawning
@@ -696,7 +737,16 @@ export class Game {
 
     // ── Wave countdown (3-2-1 before enemies spawn) ───────────────────────────
     if (this._waveCountdown > 0) {
+      const prevInt = Math.ceil(this._waveCountdown);
       this._waveCountdown -= dt;
+      const newInt  = Math.ceil(this._waveCountdown);
+
+      // Audio beep at each integer tick (3, 2, 1)
+      if (newInt < prevInt && newInt >= 1) {
+        this.audio.countdownBeep(newInt);
+        this._combatStartFlash = 0.04; // brief white pulse on each count
+      }
+
       this.playerSwarm.update(dt, []);
       this.particles.update(dt);
       this.waveAnnouncer.update(dt);
@@ -715,6 +765,9 @@ export class Game {
     }
 
     this._lasers = this._lasers.filter(l => (l.ttl -= dt) > 0);
+
+    // Smoothly slide objectives toward their target positions
+    this._lerpObjectivePositions(dt);
 
     this.cityResources.syncFromObjectives(this.objectives);
     this.cityResources.update(dt, this.playerSwarm, this.objectives);
@@ -1222,12 +1275,18 @@ export class Game {
     if (this._awaitingUpgrade) return;
     if (this.enemySwarm.drones.length > 0 || this.enemySwarm.spawning) return;
 
-    // ── Wave-clear bonus: heal alive objectives ──────────────────────────────
-    const HEAL_PER_WAVE = 8;
+    // ── Wave-clear bonus: heal alive objectives (more at lower waves = safety net) ──
+    const HEAL_PER_WAVE = this.wave <= 5 ? 12 : this.wave <= 10 ? 9 : 6;
+    const healedObjs = [];
     for (const obj of this.objectives) {
-      if (obj.health > 0) {
+      if (obj.health > 0 && obj.health < obj.maxHealth) {
+        const before = obj.health;
         obj.health = Math.min(obj.maxHealth, obj.health + HEAL_PER_WAVE);
+        if (obj.health > before) healedObjs.push(obj._label);
       }
+    }
+    if (healedObjs.length > 0) {
+      this._showAlert(`🔋 إصلاح: ${healedObjs.join(' • ')} +${HEAL_PER_WAVE} HP`);
     }
 
     // ── Streak tracking ──────────────────────────────────────────────────────
@@ -2660,38 +2719,46 @@ export class Game {
   _updateObjectivePositions(wave) {
     const W = this.canvas.width, H = this.canvas.height;
 
-    const TIERS = {
-      1: [                            // Waves 1-3: compact triangle — easy start
-        [W * 0.50, H * 0.33],
-        [W * 0.36, H * 0.56],
-        [W * 0.64, H * 0.56],
-      ],
-      2: [                            // Waves 4-9: medium spread — multi-front
-        [W * 0.50, H * 0.22],
-        [W * 0.24, H * 0.64],
-        [W * 0.76, H * 0.64],
-      ],
-      3: [                            // Wave 10+: full map — hard
-        [W * 0.50, H * 0.14],
-        [W * 0.14, H * 0.72],
-        [W * 0.86, H * 0.72],
-      ],
-    };
+    // Gradual spread: positions interpolate linearly from compact (wave 1) to
+    // widest (wave 12+) — 12 steps of continuous expansion, no hard tier jumps.
+    const t = Math.min((wave - 1) / 11, 1.0);  // 0 at wave 1 → 1 at wave 12+
 
-    const newTier = wave >= 10 ? 3 : wave >= 4 ? 2 : 1;
-    const oldTier = this._objectiveTier ?? 0;
+    const lerp = (a, b) => a + (b - a) * t;
 
-    const pos = TIERS[newTier];
+    const targets = [
+      [lerp(W * 0.50, W * 0.50), lerp(H * 0.33, H * 0.12)],  // top center moves up
+      [lerp(W * 0.36, W * 0.12), lerp(H * 0.56, H * 0.74)],  // left moves further
+      [lerp(W * 0.64, W * 0.88), lerp(H * 0.56, H * 0.74)],  // right mirrors
+    ];
+
     for (let i = 0; i < this.objectives.length; i++) {
-      if (!pos[i]) continue;
-      this.objectives[i].x = pos[i][0];
-      this.objectives[i].y = pos[i][1];
+      if (!targets[i]) continue;
+      this.objectives[i]._targetX = targets[i][0];
+      this.objectives[i]._targetY = targets[i][1];
     }
 
+    // Tier-based alerts at milestone waves (3 and 7 feel like natural pivot points)
+    const newTier = wave >= 10 ? 3 : wave >= 4 ? 2 : 1;
+    const oldTier = this._objectiveTier ?? 0;
     if (newTier > oldTier) {
       this._objectiveTier = newTier;
       if (newTier === 2) this._showAlert('⚠ الجبهة تتوسع — الأهداف تباعدت!');
       if (newTier === 3) this._showAlert('🚨 جبهة واسعة! وزّع سربك على عدة جبهات!');
+    }
+  }
+
+  /** Smoothly slide objectives toward their target positions (call each frame). */
+  _lerpObjectivePositions(dt) {
+    const speed = 40; // px/s
+    for (const obj of this.objectives) {
+      if (obj._targetX === undefined) continue;
+      const dx = obj._targetX - obj.x;
+      const dy = obj._targetY - obj.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 1) { obj.x = obj._targetX; obj.y = obj._targetY; continue; }
+      const step = Math.min(speed * dt, dist);
+      obj.x += (dx / dist) * step;
+      obj.y += (dy / dist) * step;
     }
   }
 

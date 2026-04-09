@@ -1,6 +1,6 @@
 import { Drone } from './Drone.js';
 import { computeBoidForce } from '../ai/Boids.js';
-import { ENEMY_ROLES, BOSS_ROLE, waveComposition, getScaledConfig } from './EnemyRoles.js';
+import { ENEMY_ROLES, BOSS_ROLE, waveComposition, getScaledConfig, getWaveArchetype, WAVE_ARCHETYPES } from './EnemyRoles.js';
 
 // Unified boids config lookup — works for all roles
 function _roleBoids(drone) {
@@ -51,10 +51,16 @@ export class EnemySwarm {
     const isBossWave = wave % 5 === 0;
     const profile    = this.defenseProfile;
 
-    const baseCount  = Math.min(10 + wave * 3, 40);
-    const scaledCount = profile
-      ? Math.round(baseCount * profile.strategy.sizeMulti)
-      : baseCount;
+    // Resolve archetype for this wave (drives count and role mix)
+    const archetypeKey = getWaveArchetype(wave);
+    const archetype    = WAVE_ARCHETYPES[archetypeKey] ?? WAVE_ARCHETYPES.standard;
+    this._archetype    = archetypeKey;
+
+    const baseCount    = Math.min(10 + wave * 3, 40);
+    const archetypeCount = Math.round(baseCount * archetype.sizeScale);
+    const scaledCount  = profile
+      ? Math.round(archetypeCount * profile.strategy.sizeMulti)
+      : archetypeCount;
     const count = overrideCount ?? scaledCount;
 
     const { width, height } = this.canvas;
@@ -65,7 +71,8 @@ export class EnemySwarm {
       edges = [...allEdges, profile.guessedApproach, profile.guessedApproach];
     }
 
-    const roleWeights = profile?.strategy.roleWeights ?? null;
+    // Archetype role weights take precedence over defense-profile weights
+    const roleWeights = archetype.weights ?? profile?.strategy.roleWeights ?? null;
     const roles = waveComposition(wave, count, roleWeights);
 
     for (let i = 0; i < count; i++) {
@@ -112,8 +119,8 @@ export class EnemySwarm {
         }
       }
     } else {
-      // Commander probability: 15% wave 3-4, 25% wave 5, 40% wave 6+
-      const cmdChance = wave >= 6 ? 0.40 : wave >= 5 ? 0.25 : wave >= 3 ? 0.15 : 0;
+      // Commander probability escalates with wave — starts rare, becomes near-certain late game
+      const cmdChance = wave >= 9 ? 0.65 : wave >= 6 ? 0.50 : wave >= 5 ? 0.35 : wave >= 3 ? 0.20 : 0;
       if (cmdChance > 0 && Math.random() < cmdChance) {
         const x = Math.random() * width, y = -30;
         const cmd = new Drone(x, y, 'enemy');

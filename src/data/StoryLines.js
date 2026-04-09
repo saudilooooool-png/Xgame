@@ -64,11 +64,53 @@ const WAVE_STORIES = {
     sub: 'الأعداء يتعلمون من كل موجة — هل ستصمد؟',
     color: '#cc88ff',
   },
+  12: {
+    arTitle: 'رماة الظلام',
+    enTitle: 'SHADOW SNIPERS',
+    sub: 'قناصة تسيطر على ساحة المعركة من بعيد — استخدم تشكيل الخنجر',
+    color: '#cc44ff',
+  },
+  13: {
+    arTitle: 'صمت قبل العاصفة',
+    enTitle: 'EYE OF THE STORM',
+    sub: 'هجوم خفيف — لكن لا تستهن، القادم أشد',
+    color: '#44aaff',
+  },
+  14: {
+    arTitle: 'ظل الليل',
+    enTitle: 'SHADOW LEGION',
+    sub: 'وحدات التخفي تحيط بالمدينة — نبضة التركيز ستكشفهم',
+    color: '#00cc88',
+  },
   15: {
     arTitle: 'الأسطورة',
     enTitle: 'LEGEND',
     sub: 'لم يتوقع المدافعون أن تصل حتى هنا — استمر',
     color: '#cc88ff',
+  },
+  16: {
+    arTitle: 'موجة الانتحاريين',
+    enTitle: 'MARTYRS WAVE',
+    sub: 'المتفجرون يندفعون — لا تدعهم يقتربون من المدن',
+    color: '#ff4400',
+  },
+  17: {
+    arTitle: 'طوفان الحديد',
+    enTitle: 'IRON FLOOD',
+    sub: 'العدد كثيف — وزّع السرب على عدة محاور دفاعية',
+    color: '#ff6622',
+  },
+  18: {
+    arTitle: 'لحظة استعادة',
+    enTitle: 'RECOVERY',
+    sub: 'استغل هذه اللحظة — أعد تشكيل وعالج الأهداف',
+    color: '#44aaff',
+  },
+  19: {
+    arTitle: 'النخبة الأخيرة',
+    enTitle: 'FINAL ELITE',
+    sub: 'أفضل وحدات العدو تتقدم — لا هامش للخطأ',
+    color: '#ffaa00',
   },
   20: {
     arTitle: 'نهاية الدنيا',
@@ -118,13 +160,13 @@ function criticalLines(cityResources) {
  * @param {boolean} isBossWave
  * @param {CityResources} cityResources
  * @param {number} streak
- * @returns {{ arTitle, enTitle, sub, color, urgentLines, streakBonus }}
+ * @param {string} [archetypeAr] — Arabic archetype label (optional)
+ * @returns {{ arTitle, enTitle, sub, color, urgentLines, streakBonus, archetypeAr }}
  */
-export function getWaveStory(wave, isBossWave, cityResources, streak = 0) {
+export function getWaveStory(wave, isBossWave, cityResources, streak = 0, archetypeAr = '') {
   let story;
 
   if (isBossWave) {
-    // Exact boss key or generic boss
     story = BOSS_STORIES[wave] ?? {
       arTitle: 'قائد الهجوم',
       enTitle: 'ATTACK COMMANDER',
@@ -132,7 +174,6 @@ export function getWaveStory(wave, isBossWave, cityResources, streak = 0) {
       color: '#ffcc00',
     };
   } else {
-    // Find closest wave key ≤ current wave
     const keys = Object.keys(WAVE_STORIES)
       .map(Number)
       .filter(k => k <= wave)
@@ -148,8 +189,7 @@ export function getWaveStory(wave, isBossWave, cityResources, streak = 0) {
     ? `🔥 سلسلة ×${streak} موجة مثالية!`
     : null;
 
-  return { ...story, urgentLines, streakBonus };
-}
+  return { ...story, urgentLines, streakBonus, archetypeAr };
 
 // ── Achievement definitions ─────────────────────────────────────────────────
 

@@ -121,24 +121,89 @@ export const BOSS_ROLE = {
 
 /**
  * Returns a scaled config for a role at a given wave.
+ * Scaling is now continuous (per-wave) rather than coarse 3-wave tiers.
  */
 export function getScaledConfig(role, wave) {
   const base = { ...ENEMY_ROLES[role] };
-  const tier = Math.floor((wave - 1) / 3);
-  if (tier === 0) return base;
+  if (wave <= 1) return base;
 
-  const hpMult  = 1 + tier * 0.18;
-  const spdMult = 1 + tier * 0.08;
-  const dmgMult = 1 + tier * 0.10;
+  // Continuous scaling: +6% HP/wave, +2.5% speed/wave, +3% damage/wave
+  // Capped at wave 15 (no further scaling beyond that)
+  const w      = Math.min(wave - 1, 14);
+  const hpMult  = 1 + w * 0.060;
+  const spdMult = 1 + w * 0.025;
+  const dmgMult = 1 + w * 0.030;
 
   return {
     ...base,
-    hp:          Math.round(base.hp          * hpMult),
-    maxHp:       Math.round(base.maxHp       * hpMult),
-    maxSpeed:    Math.round(base.maxSpeed     * spdMult),
-    fireDamage:  base.fireDamage > 0 ? Math.round(base.fireDamage * dmgMult) : 0,
+    hp:         Math.round(base.hp         * hpMult),
+    maxHp:      Math.round(base.maxHp      * hpMult),
+    maxSpeed:   Math.round(base.maxSpeed   * spdMult),
+    fireDamage: base.fireDamage > 0 ? Math.round(base.fireDamage * dmgMult) : 0,
     boids: { ...base.boids, maxSpeed: Math.round(base.boids.maxSpeed * spdMult) },
   };
+}
+
+// ── Wave Archetypes ───────────────────────────────────────────────────────────
+// Each archetype defines the feel of a non-boss wave:
+//   sizeScale  — multiplier on base enemy count
+//   ar         — Arabic alert name shown to player
+//   weights    — role ratio override (null = use waveComposition defaults)
+
+export const WAVE_ARCHETYPES = {
+  standard:  { sizeScale: 1.00, ar: '',                  weights: null },
+  swarm:     { sizeScale: 1.40, ar: '🌊 غارة سرب!',      weights: { rusher: 75, flanker: 20, sniper: 0,  stealth: 0,  kamikaze: 5  } },
+  elite:     { sizeScale: 0.60, ar: '⚔ نخبة متمرّسة',    weights: { rusher: 15, flanker: 25, sniper: 35, stealth: 15, kamikaze: 10 } },
+  stealth:   { sizeScale: 0.85, ar: '👁 تسلل خفي',       weights: { rusher: 10, flanker: 15, sniper: 10, stealth: 55, kamikaze: 10 } },
+  kamikaze:  { sizeScale: 1.10, ar: '💥 هجوم انتحاري',   weights: { rusher: 20, flanker: 10, sniper: 5,  stealth: 5,  kamikaze: 60 } },
+  blitz:     { sizeScale: 1.45, ar: '⚡ بليتز!',          weights: { rusher: 40, flanker: 30, sniper: 5,  stealth: 0,  kamikaze: 25 } },
+  siege:     { sizeScale: 0.75, ar: '🎯 حصار مدفعي',     weights: { rusher: 10, flanker: 10, sniper: 60, stealth: 15, kamikaze: 5  } },
+  rest:      { sizeScale: 0.50, ar: '😮‍💨 تهدئة مؤقتة', weights: { rusher: 80, flanker: 15, sniper: 5,  stealth: 0,  kamikaze: 0  } },
+};
+
+/**
+ * Returns the archetype key for a given wave.
+ * Boss waves (wave % 5 === 0) always return 'boss'.
+ * The sequence alternates between intense and calm for clear rhythm.
+ */
+export function getWaveArchetype(wave) {
+  if (wave % 5 === 0) return 'boss';
+
+  // Hand-crafted sequence for waves 1–20 — after that, repeat a cycle
+  const SEQ = [
+    null,        // wave 0 (unused)
+    'standard',  // wave 1  — tutorial, easy start
+    'swarm',     // wave 2  — lots of rushers
+    'standard',  // wave 3  — mixed, dual-front introduction
+    'elite',     // wave 4  — fewer but tougher
+    // wave 5 = boss
+    'swarm',     // wave 6  — big wave return after boss
+    'stealth',   // wave 7  — sneaky assault
+    'rest',      // wave 8  — breathing room
+    'kamikaze',  // wave 9  — dangerous close-range
+    // wave 10 = boss
+    'blitz',     // wave 11 — overwhelming numbers
+    'siege',     // wave 12 — long-range snipers dominate
+    'rest',      // wave 13 — calm before storm
+    'stealth',   // wave 14 — heavy stealth
+    // wave 15 = boss
+    'kamikaze',  // wave 16 — chaotic
+    'blitz',     // wave 17 — massive push
+    'rest',      // wave 18 — short rest
+    'elite',     // wave 19 — elite before mega-boss
+    // wave 20 = boss
+  ];
+
+  if (wave < SEQ.length && SEQ[wave]) return SEQ[wave];
+
+  // Waves 21+: repeat a 4-wave cycle (no more rests — players are veterans)
+  const cycle = ['blitz', 'siege', 'elite', 'kamikaze'];
+  // Map wave to non-boss index
+  let nonBossIdx = 0;
+  for (let w = 21; w < wave; w++) {
+    if (w % 5 !== 0) nonBossIdx++;
+  }
+  return cycle[nonBossIdx % cycle.length];
 }
 
 /**
@@ -170,8 +235,14 @@ export function waveComposition(wave, count, roleWeights = null) {
     [rushR, flankR, snipeR, stealthR, kamiR] = [0.50, 0.28, 0.12, 0.10, 0.00];
   } else if (wave <= 5) {
     [rushR, flankR, snipeR, stealthR, kamiR] = [0.35, 0.28, 0.15, 0.10, 0.12];
-  } else {
+  } else if (wave <= 8) {
     [rushR, flankR, snipeR, stealthR, kamiR] = [0.25, 0.26, 0.18, 0.14, 0.17];
+  } else if (wave <= 12) {
+    [rushR, flankR, snipeR, stealthR, kamiR] = [0.20, 0.22, 0.20, 0.18, 0.20];
+  } else if (wave <= 16) {
+    [rushR, flankR, snipeR, stealthR, kamiR] = [0.15, 0.20, 0.22, 0.22, 0.21];
+  } else {
+    [rushR, flankR, snipeR, stealthR, kamiR] = [0.12, 0.18, 0.24, 0.24, 0.22];
   }
 
   const roles = [];
